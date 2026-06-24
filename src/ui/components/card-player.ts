@@ -188,30 +188,36 @@ function renderPlayer(
   apiKey: string | undefined,
   loadFullItem: HTMLButtonElement
 ): void {
+  document.querySelectorAll('.video-overlay').forEach((node) => node.remove());
+  document.body.classList.remove('video-overlay-open');
+
   const nowPlaying = document.createElement('div');
   nowPlaying.className = 'now-playing';
   nowPlaying.textContent = t('pressPlayToLoad');
 
-  const playerWrap = document.createElement('div');
-  playerWrap.className =
-    'player-area' + (card.settings.showVideo ? ' video-float' : ' audio-only');
+  const audioSlot = document.createElement('div');
+  audioSlot.className = 'player-area audio-only';
+
+  const playerHost = document.createElement('div');
+  playerHost.id = `yt-${card.id}`;
+  playerHost.className = 'player-host';
+  audioSlot.appendChild(playerHost);
+
+  const videoOverlay = document.createElement('div');
+  videoOverlay.className = 'video-overlay';
+  videoOverlay.hidden = true;
 
   const videoBackdrop = document.createElement('div');
   videoBackdrop.className = 'video-float-backdrop';
   videoBackdrop.setAttribute('aria-hidden', 'true');
 
-  const videoInner = document.createElement('div');
-  videoInner.className = 'video-float-inner';
+  const videoPanel = document.createElement('div');
+  videoPanel.className = 'video-overlay-panel glass-elevated';
 
   const videoCloseBtn = iconButton('close', t('closeVideo'));
   videoCloseBtn.className = 'btn btn-icon btn-icon-svg video-float-close';
 
-  const playerHost = document.createElement('div');
-  playerHost.id = `yt-${card.id}`;
-  playerHost.className = 'player-host';
-
-  videoInner.append(videoCloseBtn, playerHost);
-  playerWrap.append(videoBackdrop, videoInner);
+  videoOverlay.append(videoBackdrop, videoPanel);
 
   const thumbGrid = document.createElement('div');
   thumbGrid.className = 'thumb-grid-wrap';
@@ -305,7 +311,35 @@ function renderPlayer(
   rowMain.append(prev, play, next, volumeEl);
   rowToggles.append(orderSeg, videoBtn, queueBtn, autoBtn, searchBtn);
   controls.append(rowMain, rowToggles);
-  el.append(nowPlaying, playerWrap, thumbGrid, seek.el, timeRow, controls);
+  el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
+
+  function dockPlayerInCard(): void {
+    if (playerHost.parentElement !== audioSlot) audioSlot.appendChild(playerHost);
+    if (seek.el.parentElement !== el) {
+      el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
+    }
+  }
+
+  function openVideoOverlay(): void {
+    videoOverlay.hidden = false;
+    if (!videoOverlay.isConnected) document.body.appendChild(videoOverlay);
+    document.body.classList.add('video-overlay-open');
+
+    const stage = document.createElement('div');
+    stage.className = 'video-overlay-stage';
+    stage.appendChild(playerHost);
+
+    videoPanel.replaceChildren();
+    videoPanel.append(videoCloseBtn, stage, seek.el, timeRow, controls);
+    ctrl.updateSettings(card.settings);
+  }
+
+  function teardownVideoOverlay(): void {
+    videoOverlay.hidden = true;
+    if (videoOverlay.isConnected) videoOverlay.remove();
+    document.body.classList.remove('video-overlay-open');
+    dockPlayerInCard();
+  }
 
   let videos: VideoEntry[] = [];
   let index = card.currentVideoIndex ?? 0;
@@ -412,12 +446,11 @@ function renderPlayer(
   }
 
   function syncVideoFloat(): void {
-    const show = card.settings.showVideo;
-    playerWrap.classList.toggle('audio-only', !show);
-    playerWrap.classList.toggle('video-float', show);
-    videoBackdrop.hidden = !show;
-    videoCloseBtn.hidden = !show;
-    ctrl.updateSettings(card.settings);
+    if (card.settings.showVideo) openVideoOverlay();
+    else {
+      teardownVideoOverlay();
+      ctrl.updateSettings(card.settings);
+    }
   }
 
   videoBackdrop.onclick = () => closeVideoOverlay();
@@ -425,7 +458,7 @@ function renderPlayer(
     e.stopPropagation();
     closeVideoOverlay();
   };
-  videoInner.onclick = (e) => e.stopPropagation();
+  videoPanel.onclick = (e) => e.stopPropagation();
 
   function syncQueuePanel(): void {
     queueBtn.classList.toggle('active', queuePanelOpen);
