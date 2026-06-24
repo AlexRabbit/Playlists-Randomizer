@@ -18,6 +18,8 @@ import { YouTubePlayerController } from '@/core/youtube/player';
 import type { VideoEntry } from '@/core/models/workspace';
 import { log } from '@/logs/logger';
 import { createSeekBar, formatTime } from './seek-bar';
+import { createOrderSegment, createVolumeSlider } from './player-controls';
+import { createVideoOverlay, removeVideoOverlaysForMount } from './video-overlay';
 import { openSearchPanel } from './search-panel';
 import {
   showPlaylistSidebar,
@@ -26,12 +28,11 @@ import {
   type PlaylistSidebarConfig,
 } from './playlist-sidebar';
 import { createSkeletonCard } from './skeleton';
-import { iconButton, icons, setIcon } from '@/ui/icons';
+import { iconButton, setIcon } from '@/ui/icons';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
 import { showToast } from '@/app/toast';
 import { onCardPlaybackStart, listenForPlaybackCoordination } from '@/core/playback/coordinator';
-import { VOLUME_SLIDER_MAX } from '@/core/youtube/player';
 import type { PlaylistTruncation } from '@/core/youtube/playlist';
 
 const controllers = new Map<string, YouTubePlayerController>();
@@ -188,9 +189,7 @@ function renderPlayer(
   apiKey: string | undefined,
   loadFullItem: HTMLButtonElement
 ): void {
-  document.querySelectorAll('.video-overlay').forEach((node) => node.remove());
-  document.querySelectorAll(`.player-mount[data-card-id="${card.id}"]`).forEach((node) => node.remove());
-  document.body.classList.remove('video-overlay-open');
+  removeVideoOverlaysForMount(card.id);
 
   const nowPlaying = document.createElement('div');
   nowPlaying.className = 'now-playing';
@@ -199,32 +198,6 @@ function renderPlayer(
   const audioSlot = document.createElement('div');
   audioSlot.className = 'player-area audio-only';
   audioSlot.hidden = true;
-
-  const playerMount = document.createElement('div');
-  playerMount.className = 'player-mount player-mount-hidden';
-  playerMount.dataset.cardId = card.id;
-
-  const playerHost = document.createElement('div');
-  playerHost.id = `yt-${card.id}`;
-  playerHost.className = 'player-host';
-  playerMount.appendChild(playerHost);
-  document.body.appendChild(playerMount);
-
-  const videoOverlay = document.createElement('div');
-  videoOverlay.className = 'video-overlay';
-  videoOverlay.hidden = true;
-
-  const videoBackdrop = document.createElement('div');
-  videoBackdrop.className = 'video-float-backdrop';
-  videoBackdrop.setAttribute('aria-hidden', 'true');
-
-  const videoPanel = document.createElement('div');
-  videoPanel.className = 'video-overlay-panel glass-elevated';
-
-  const videoCloseBtn = iconButton('close', t('closeVideo'));
-  videoCloseBtn.className = 'btn btn-icon btn-icon-svg video-float-close';
-
-  videoOverlay.append(videoBackdrop, videoPanel);
 
   const thumbGrid = document.createElement('div');
   thumbGrid.className = 'thumb-grid-wrap';
@@ -286,6 +259,8 @@ function renderPlayer(
   };
 
   let cardIsPlaying = false;
+  let videos: VideoEntry[] = [];
+  let index = card.currentVideoIndex ?? 0;
 
   function setCardPlaying(playing: boolean): void {
     cardIsPlaying = playing;
@@ -293,8 +268,44 @@ function renderPlayer(
     updateNowPlaying();
   }
 
-  const ctrl = new YouTubePlayerController(
-    playerHost,
+  function setPlayIcon(playing: boolean): void {
+    setIcon(play, playing ? 'pause' : 'play');
+  }
+
+  rowMain.append(searchBtn, prev, play, next);
+  rowToggles.append(orderSeg, videoBtn, queueBtn, autoBtn);
+  controls.append(rowMain, rowToggles);
+  el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
+
+  function dockControlsInCard(): void {
+    if (seek.el.parentElement !== el) {
+      el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
+    }
+  }
+
+  function closeVideoOverlay(): void {
+    if (!card.settings.showVideo) return;
+    updateCard(listId, card.id, { settings: { ...card.settings, showVideo: false } });
+    card.settings.showVideo = false;
+    videoBtn.classList.remove('active');
+    setIcon(videoBtn, 'videoOff');
+    overlay.sync(false);
+  }
+
+  let ctrl!: YouTubePlayerController;
+  const overlay = createVideoOverlay({
+    mountKey: card.id,
+    hostId: `yt-${card.id}`,
+    controller: () => ctrl,
+    getDock: () => ({ seek: seek.el, timeRow, controls }),
+    dockControls: dockControlsInCard,
+    onUserClose: () => closeVideoOverlay(),
+    onPlayIcon: setPlayIcon,
+    getCastTitle: () => videos[index]?.title,
+  });
+
+  ctrl = new YouTubePlayerController(
+    overlay.playerHost,
     card.settings,
     () => {
       setCardPlaying(false);
@@ -314,106 +325,12 @@ function renderPlayer(
   controllers.set(card.id, ctrl);
 
   const volumeEl = createVolumeSlider((v) => ctrl.setVolume(v), ctrl.getVolume());
+  rowMain.appendChild(volumeEl);
 
-  rowMain.append(prev, play, next, volumeEl);
-  rowToggles.append(orderSeg, videoBtn, queueBtn, autoBtn, searchBtn);
-  controls.append(rowMain, rowToggles);
-  el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
-
-  function dockControlsInCard(): void {
-    if (seek.el.parentElement !== el) {
-      el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
-    }
+  function syncVideoFloat(): void {
+    overlay.sync(card.settings.showVideo);
   }
 
-  let overlayOpen = false;
-  let stageEl: HTMLElement | null = null;
-  let positionListener: (() => void) | null = null;
-  let stageObserver: ResizeObserver | null = null;
-
-  function positionPlayerOverStage(): void {
-    if (!stageEl || !overlayOpen) return;
-    const r = stageEl.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) return;
-    playerMount.style.left = `${r.left}px`;
-    playerMount.style.top = `${r.top}px`;
-    playerMount.style.width = `${r.width}px`;
-    playerMount.style.height = `${r.height}px`;
-  }
-
-  function openVideoOverlay(): void {
-    if (overlayOpen) {
-      positionPlayerOverStage();
-      return;
-    }
-
-    const shouldPlay = ctrl.wantsPlayback();
-    const pos = ctrl.getPlaybackTime();
-
-    overlayOpen = true;
-    videoOverlay.hidden = false;
-    if (!videoOverlay.isConnected) document.body.appendChild(videoOverlay);
-
-    stageEl = document.createElement('div');
-    stageEl.className = 'video-overlay-stage';
-
-    videoPanel.replaceChildren();
-    videoPanel.append(videoCloseBtn, stageEl, seek.el, timeRow, controls);
-    document.body.classList.add('video-overlay-open');
-
-    playerMount.classList.remove('player-mount-hidden');
-    playerMount.classList.add('player-mount-overlay');
-
-    positionListener = () => positionPlayerOverStage();
-    window.addEventListener('resize', positionListener);
-    stageObserver = new ResizeObserver(() => positionPlayerOverStage());
-    stageObserver.observe(stageEl);
-    stageObserver.observe(videoPanel);
-
-    requestAnimationFrame(() => {
-      positionPlayerOverStage();
-      void ctrl.attachVideoSurface().then(() => {
-        ctrl.restorePlayback(pos, shouldPlay);
-        setPlayIcon(shouldPlay);
-      });
-    });
-  }
-
-  function teardownVideoOverlay(): void {
-    if (!overlayOpen) return;
-
-    const shouldPlay = ctrl.wantsPlayback();
-    const pos = ctrl.getPlaybackTime();
-
-    overlayOpen = false;
-    stageEl = null;
-    if (positionListener) {
-      window.removeEventListener('resize', positionListener);
-      positionListener = null;
-    }
-    stageObserver?.disconnect();
-    stageObserver = null;
-
-    playerMount.classList.add('player-mount-hidden');
-    playerMount.classList.remove('player-mount-overlay');
-    playerMount.style.left = '';
-    playerMount.style.top = '';
-    playerMount.style.width = '';
-    playerMount.style.height = '';
-
-    ctrl.hideVideoSurface();
-    dockControlsInCard();
-
-    videoOverlay.hidden = true;
-    if (videoOverlay.isConnected) videoOverlay.remove();
-    document.body.classList.remove('video-overlay-open');
-
-    ctrl.restorePlayback(pos, shouldPlay);
-    setPlayIcon(shouldPlay);
-  }
-
-  let videos: VideoEntry[] = [];
-  let index = card.currentVideoIndex ?? 0;
   let duration = 0;
   let loadingMore = false;
   let loadingVideos = false;
@@ -421,10 +338,6 @@ function renderPlayer(
   let queuePanelOpen = false;
   let truncatedMeta: PlaylistTruncation[] = [];
   let ownsPlaylistSidebar = false;
-
-  function setPlayIcon(playing: boolean): void {
-    setIcon(play, playing ? 'pause' : 'play');
-  }
 
   function nextPlayableIndex(from: number, step: number): number {
     if (!videos.length) return 0;
@@ -506,27 +419,6 @@ function renderPlayer(
       onLoadFull: () => void ensureVideosLoaded(true),
     };
   }
-
-  function closeVideoOverlay(): void {
-    if (!card.settings.showVideo) return;
-    updateCard(listId, card.id, { settings: { ...card.settings, showVideo: false } });
-    card.settings.showVideo = false;
-    videoBtn.classList.remove('active');
-    setIcon(videoBtn, 'videoOff');
-    syncVideoFloat();
-  }
-
-  function syncVideoFloat(): void {
-    if (card.settings.showVideo) openVideoOverlay();
-    else teardownVideoOverlay();
-  }
-
-  videoBackdrop.onclick = () => closeVideoOverlay();
-  videoCloseBtn.onclick = (e) => {
-    e.stopPropagation();
-    closeVideoOverlay();
-  };
-  videoPanel.onclick = (e) => e.stopPropagation();
 
   function syncQueuePanel(): void {
     queueBtn.classList.toggle('active', queuePanelOpen);
@@ -721,65 +613,7 @@ function renderPlayer(
     }
   }
 
-  bindHaptic(videoCloseBtn);
+  bindHaptic(searchBtn);
   [prev, play, next, videoBtn, queueBtn, autoBtn, searchBtn].forEach(bindHaptic);
   syncVideoFloat();
-}
-
-function createOrderSegment(initialRandom: boolean, onChange: (random: boolean) => void): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'segmented';
-  wrap.setAttribute('role', 'group');
-  wrap.setAttribute('aria-label', t('random'));
-
-  let isRandom = initialRandom;
-
-  const seqBtn = document.createElement('button');
-  seqBtn.type = 'button';
-  seqBtn.className = 'segmented-btn' + (!isRandom ? ' active' : '');
-  seqBtn.textContent = t('orderSequential');
-
-  const rndBtn = document.createElement('button');
-  rndBtn.type = 'button';
-  rndBtn.className = 'segmented-btn' + (isRandom ? ' active' : '');
-  rndBtn.textContent = t('orderRandom');
-
-  const syncUi = () => {
-    seqBtn.classList.toggle('active', !isRandom);
-    rndBtn.classList.toggle('active', isRandom);
-  };
-
-  seqBtn.onclick = () => {
-    if (!isRandom) return;
-    isRandom = false;
-    syncUi();
-    onChange(false);
-  };
-  rndBtn.onclick = () => {
-    if (isRandom) return;
-    isRandom = true;
-    syncUi();
-    onChange(true);
-  };
-  wrap.append(seqBtn, rndBtn);
-  return wrap;
-}
-
-function createVolumeSlider(onChange: (v: number) => void, initial = 100): HTMLElement {
-  const wrap = document.createElement('label');
-  wrap.className = 'volume-control';
-  wrap.title = t('volume');
-  wrap.dataset.tooltip = t('volume');
-  const icon = document.createElement('span');
-  icon.className = 'volume-icon';
-  icon.innerHTML = icons.volume;
-  const input = document.createElement('input');
-  input.type = 'range';
-  input.min = '0';
-  input.max = String(VOLUME_SLIDER_MAX);
-  input.value = String(initial);
-  input.className = 'volume-slider';
-  input.oninput = () => onChange(Number(input.value));
-  wrap.append(icon, input);
-  return wrap;
 }

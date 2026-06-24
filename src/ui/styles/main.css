@@ -860,7 +860,8 @@ body.video-overlay-open {
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .video-overlay-stage .player-host {
@@ -887,6 +888,30 @@ body.video-overlay-open {
   border: 1px solid rgba(255, 100, 120, 0.45);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   cursor: pointer;
+}
+
+.video-overlay-cast {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  z-index: 910;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.video-overlay-cast .video-cast-btn {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(20, 16, 22, 0.88);
+  border: 1px solid rgba(255, 100, 120, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.video-overlay-cast .video-cast-btn:hover {
+  background: rgba(230, 57, 70, 0.28);
 }
 
 .video-overlay-panel .video-float-close:hover {

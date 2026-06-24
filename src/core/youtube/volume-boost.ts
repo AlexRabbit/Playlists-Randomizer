@@ -108,6 +108,10 @@ export class VolumeBoostAudio {
     return Number.isFinite(d) ? d : 0;
   }
 
+  getAudioElement(): HTMLAudioElement {
+    return this.audio;
+  }
+
   onEnded(fn: () => void): void {
     this.onEndedCb = fn;
   }

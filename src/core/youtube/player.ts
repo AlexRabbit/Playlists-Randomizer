@@ -2,6 +2,8 @@ import type { CardSettings } from '../models/workspace';
 import { VolumeBoostAudio } from './volume-boost';
 import { VOLUME_SLIDER_MAX, sliderToYoutubeApi } from './volume';
 import { log } from '@/logs/logger';
+import { installMockYouTubeApi } from '@/e2e/stubs';
+import { isE2E } from '@/e2e/flags';
 
 export { VOLUME_SLIDER_MAX } from './volume';
 
@@ -54,6 +56,10 @@ declare global {
 let apiPromise: Promise<void> | null = null;
 
 export function loadYouTubeApi(): Promise<void> {
+  if (isE2E()) {
+    installMockYouTubeApi();
+    return Promise.resolve();
+  }
   if (window.YT?.Player) return Promise.resolve();
   if (apiPromise) return apiPromise;
   apiPromise = new Promise((resolve) => {
@@ -393,6 +399,14 @@ export class YouTubePlayerController {
     return this.getCurrentTime();
   }
 
+  getCurrentVideoId(): string | null {
+    return this.currentVideoId;
+  }
+
+  getCastAudioElement(): HTMLMediaElement | null {
+    return this.boost?.getAudioElement() ?? null;
+  }
+
   restorePlayback(pos: number, shouldPlay: boolean): void {
     if (pos > 0.5) this.seek(pos);
     if (shouldPlay) void this.resumeAfterSurfaceChange(pos);
@@ -438,6 +452,11 @@ export class YouTubePlayerController {
       el.style.pointerEvents = '';
       el.style.left = '';
       el.style.top = '';
+      el.setAttribute(
+        'allow',
+        'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; airplay'
+      );
+      el.setAttribute('allowfullscreen', '');
     } else {
       el.style.visibility = 'hidden';
       el.style.position = 'absolute';

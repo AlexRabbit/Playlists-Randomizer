@@ -46,6 +46,12 @@ function initParallaxBubbles(): void {
   );
 }
 
+declare global {
+  interface Window {
+    __PRR_E2E_WS__?: import('@/core/models/workspace').Workspace;
+  }
+}
+
 log.info('boot', 'Playlists Randomizer starting', {
   base: import.meta.env.BASE_URL,
   version: import.meta.env.VITE_URL_STATE_VERSION,
@@ -54,7 +60,7 @@ log.info('boot', 'Playlists Randomizer starting', {
 const app = document.getElementById('app');
 if (!app) throw new Error('#app not found');
 
-const workspace = readWorkspaceFromUrl();
+const workspace = window.__PRR_E2E_WS__ ?? readWorkspaceFromUrl();
 initApp(app, workspace);
 
 log.info('boot', 'App initialized', { lists: workspace.lists.length });

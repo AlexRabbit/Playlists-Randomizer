@@ -1,5 +1,6 @@
 import type { VideoEntry } from '../models/workspace';
 import { log } from '@/logs/logger';
+import { E2E_MOCK_VIDEOS, isE2E } from '@/e2e/flags';
 import { getCachedPlaylist, setCachedPlaylist } from '../cache/playlist-cache';
 import { fetchPlaylistVideosApi, getApiKey } from './api';
 import { fetchPlaylistVideosProxy, hasPlaylistProxy } from './proxy';
@@ -275,6 +276,9 @@ export async function fetchAllPlaylistVideos(
   apiKeyOverride?: string | null,
   skipCache = false
 ): Promise<FetchPlaylistsResult> {
+  if (isE2E()) {
+    return { videos: [...E2E_MOCK_VIDEOS], truncated: [] };
+  }
   const unique = [...new Set(playlistIds)];
   const results = await Promise.allSettled(
     unique.map((id) => fetchPlaylistVideos(id, apiKeyOverride, skipCache))
