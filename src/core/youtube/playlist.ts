@@ -74,8 +74,11 @@ export function parsePlaylistId(input: string): string | null {
   if (!trimmed) return null;
   const patterns = [
     /[?&]list=([A-Za-z0-9_-]+)/,
-    /^([A-Za-z0-9_-]{10,})$/,
+    /\/show\/([A-Za-z0-9_-]+)/,
+    /\/podcast\/([A-Za-z0-9_-]+)/,
     /playlist\/([A-Za-z0-9_-]+)/,
+    /^((?:UU|PL|VLPL|OLAK5uy|RD)[A-Za-z0-9_-]+)$/,
+    /^([A-Za-z0-9_-]{10,})$/,
   ];
   for (const re of patterns) {
     const m = trimmed.match(re);
