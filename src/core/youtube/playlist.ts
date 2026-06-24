@@ -5,6 +5,24 @@ import { fetchPlaylistVideosApi, getApiKey } from './api';
 
 const RSS_URL = 'https://www.youtube.com/feeds/videos.xml?playlist_id=';
 
+/** CORS fallback when browser blocks direct YouTube RSS fetch */
+async function fetchTextWithCorsFallback(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (res.ok) return await res.text();
+    log.warn('youtube', 'Direct RSS HTTP error', { url, status: res.status });
+  } catch (e) {
+    log.debug('youtube', 'Direct RSS blocked, using proxy', { error: String(e) });
+  }
+
+  const proxyBase =
+    import.meta.env.VITE_CORS_PROXY_URL || 'https://api.allorigins.win/raw?url=';
+  const proxyUrl = `${proxyBase}${encodeURIComponent(url)}`;
+  const res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error(`Playlist fetch failed (HTTP ${res.status})`);
+  return await res.text();
+}
+
 export function parsePlaylistId(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -47,10 +65,12 @@ function parseRssEntries(xml: string, playlistId: string): VideoEntry[] {
 async function fetchPlaylistVideosRss(playlistId: string): Promise<VideoEntry[]> {
   const url = RSS_URL + encodeURIComponent(playlistId);
   log.info('youtube', 'Fetching playlist RSS', { playlistId });
-  const res = await fetch(url, { mode: 'cors' });
-  if (!res.ok) throw new Error(`Playlist ${playlistId}: HTTP ${res.status}`);
-  const xml = await res.text();
-  return parseRssEntries(xml, playlistId);
+  const xml = await fetchTextWithCorsFallback(url);
+  const videos = parseRssEntries(xml, playlistId);
+  if (!videos.length) {
+    throw new Error(`Playlist ${playlistId}: no videos in feed (private or invalid?)`);
+  }
+  return videos;
 }
 
 export async function fetchPlaylistVideos(
@@ -88,7 +108,9 @@ export async function fetchAllPlaylistVideos(
   );
   const merged: VideoEntry[] = [];
   const seen = new Set<string>();
-  for (const r of results) {
+  const failures: string[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === 'fulfilled') {
       for (const v of r.value) {
         if (!seen.has(v.videoId)) {
@@ -97,8 +119,12 @@ export async function fetchAllPlaylistVideos(
         }
       }
     } else {
-      log.warn('youtube', 'Playlist partial failure', { reason: String(r.reason) });
+      failures.push(`${unique[i]}: ${String(r.reason)}`);
+      log.warn('youtube', 'Playlist partial failure', { playlistId: unique[i], reason: String(r.reason) });
     }
+  }
+  if (!merged.length && failures.length) {
+    throw new Error(failures.join('; '));
   }
   return merged;
 }

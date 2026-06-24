@@ -12,7 +12,6 @@ import { YouTubePlayerController } from '@/core/youtube/player';
 import type { VideoEntry } from '@/core/models/workspace';
 import { log } from '@/logs/logger';
 import { createSeekBar, formatTime } from './seek-bar';
-import { openBulkPasteModal } from './bulk-paste-modal';
 import { openSearchPanel, renderThumbnailGrid } from './search-panel';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
@@ -41,46 +40,63 @@ export function mountCard(
   headerActions.className = 'card-header-actions';
 
   if (!editing && card.playlistIds.length) {
-    const bulkBtn = iconBtn('📋', t('bulkPaste'));
-    bulkBtn.onclick = () =>
-      openBulkPasteModal((ids) => {
-        const merged = [...new Set([...card.playlistIds, ...ids])];
-        updateCard(listId, card.id, { playlistIds: merged });
-        mountCard(el, listId, { ...card, playlistIds: merged }, false, apiKey, dragHandle);
-      });
     const editBtn = iconBtn('✎', t('editPlaylists'));
     editBtn.onclick = () => setEditingCard(card.id);
-    headerActions.append(bulkBtn, editBtn);
+    headerActions.appendChild(editBtn);
   }
 
-  const delBtn = iconBtn('×', t('deleteCard'));
-  delBtn.classList.add('btn-danger');
-  delBtn.onclick = () => {
-    if (confirm(t('confirmDeleteCard', { name: card.name }))) {
-      controllers.get(card.id)?.destroy();
-      controllers.delete(card.id);
-      deleteCard(listId, card.id);
-    }
-  };
-  headerActions.appendChild(delBtn);
+  headerActions.appendChild(createCardMenu(listId, card));
   header.appendChild(headerActions);
   el.appendChild(header);
 
   if (editing || !card.playlistIds.length) {
-    renderEditor(el, listId, card, apiKey, dragHandle);
+    renderEditor(el, listId, card);
     return;
   }
 
   renderPlayer(el, listId, card, apiKey);
 }
 
-function renderEditor(
-  el: HTMLElement,
-  listId: string,
-  card: Card,
-  apiKey: string | undefined,
-  dragHandle?: HTMLElement
-): void {
+function createCardMenu(listId: string, card: Card): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'card-menu';
+
+  const trigger = iconBtn('⋮', t('moreActions'));
+  const menu = document.createElement('div');
+  menu.className = 'card-menu-dropdown';
+  menu.hidden = true;
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'card-menu-item card-menu-danger';
+  deleteBtn.textContent = t('deleteCard');
+  deleteBtn.onclick = () => {
+    menu.hidden = true;
+    if (confirm(t('confirmDeleteCard', { name: card.name }))) {
+      controllers.get(card.id)?.destroy();
+      controllers.delete(card.id);
+      deleteCard(listId, card.id);
+    }
+  };
+
+  menu.appendChild(deleteBtn);
+  wrap.append(trigger, menu);
+
+  trigger.onclick = (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+  };
+
+  const closeMenu = () => {
+    menu.hidden = true;
+  };
+  document.addEventListener('click', closeMenu);
+  menu.onclick = (e) => e.stopPropagation();
+
+  return wrap;
+}
+
+function renderEditor(el: HTMLElement, listId: string, card: Card): void {
   const form = document.createElement('div');
   form.className = 'card-edit';
 
@@ -97,15 +113,6 @@ function renderEditor(
   plText.value = card.playlistIds.join('\n');
   plLabel.appendChild(plText);
 
-  const bulkBtn = document.createElement('button');
-  bulkBtn.className = 'btn';
-  bulkBtn.textContent = t('bulkPaste');
-  bulkBtn.type = 'button';
-  bulkBtn.onclick = () =>
-    openBulkPasteModal((ids) => {
-      plText.value = [...new Set([...parseLines(plText.value), ...ids])].join('\n');
-    });
-
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
   const save = document.createElement('button');
@@ -119,15 +126,9 @@ function renderEditor(
   cancel.className = 'btn';
   cancel.textContent = t('cancel');
   cancel.onclick = () => setEditingCard(null);
-  actions.append(save, cancel, bulkBtn);
+  actions.append(save, cancel);
   form.append(nameLabel, plLabel, actions);
   el.appendChild(form);
-  void apiKey;
-  void dragHandle;
-}
-
-function parseLines(text: string): string[] {
-  return text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
 }
 
 function renderPlayer(
@@ -144,6 +145,7 @@ function renderPlayer(
   playerWrap.className = 'player-area' + (card.settings.showVideo ? '' : ' audio-only');
   const playerHost = document.createElement('div');
   playerHost.id = `yt-${card.id}`;
+  playerHost.className = 'player-host';
   playerWrap.appendChild(playerHost);
 
   const thumbGrid = document.createElement('div');
@@ -335,7 +337,7 @@ function renderPlayer(
       }
       log.info('player', 'Card ready', { card: card.name, videos: videos.length });
     } catch (e) {
-      nowPlaying.textContent = String(e);
+      nowPlaying.innerHTML = `<strong>${t('noVideos')}</strong>${t('fetchErrorHint')}`;
       log.error('player', 'Load failed', { error: String(e) });
     }
   }

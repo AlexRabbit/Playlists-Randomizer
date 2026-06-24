@@ -6,7 +6,7 @@ import { fetchAllPlaylistVideos, orderVideos, parsePlaylistIdsFromText } from '@
 import { log } from '@/logs/logger';
 import { renderSidebar } from '@/ui/components/sidebar';
 import { renderMain } from '@/ui/components/main-area';
-import { renderLogPanel } from '@/ui/components/log-panel';
+import { renderLogPanel, toggleLogPanel } from '@/ui/components/log-panel';
 import {
   setGlobalPlayerMount,
   startGlobalSession,
@@ -262,6 +262,20 @@ function render(): void {
   if (active && !state.workspace.activeListId) state.workspace.activeListId = active.id;
 
   root.innerHTML = '';
+
+  const topBar = document.createElement('header');
+  topBar.className = 'app-topbar';
+  const topTitle = document.createElement('span');
+  topTitle.className = 'app-topbar-title';
+  topTitle.textContent = t('appName');
+  const logsBtn = document.createElement('button');
+  logsBtn.type = 'button';
+  logsBtn.className = 'btn';
+  logsBtn.textContent = '🔬 ' + t('logs');
+  logsBtn.onclick = () => toggleLogPanel();
+  topBar.append(topTitle, logsBtn);
+  root.appendChild(topBar);
+
   const shell = document.createElement('div');
   shell.className = 'app-shell';
 

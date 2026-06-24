@@ -288,24 +288,27 @@ body {
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: #000;
-  min-height: 48px;
+  aspect-ratio: 16 / 9;
 }
 
 .player-area.audio-only {
-  min-height: 48px;
-  height: 48px;
-}
-
-.player-area.audio-only iframe {
-  position: absolute !important;
-  width: 1px !important;
-  height: 1px !important;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
   opacity: 0;
   pointer-events: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
-.player-area video-mode {
-  aspect-ratio: 16 / 9;
+.player-host {
+  width: 100%;
+  height: 100%;
 }
 
 .now-playing {
@@ -343,34 +346,50 @@ body {
   margin: 0.5rem 0 1rem;
 }
 
-.log-panel {
+.log-modal-overlay {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  max-height: 220px;
-  z-index: 1000;
-  border-top: 1px solid var(--glass-border);
-  background: rgba(10, 10, 12, 0.92);
-  backdrop-filter: blur(20px);
+  inset: 0;
+  z-index: 5000;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.log-modal-overlay[hidden] {
+  display: none;
+}
+
+.log-modal {
+  width: min(720px, 100%);
+  max-height: 80vh;
   display: flex;
   flex-direction: column;
-  transition: transform 0.3s var(--ease);
+  padding: 0;
+  overflow: hidden;
 }
 
-.log-panel.collapsed {
-  transform: translateY(calc(100% - 36px));
-}
-
-.log-panel-header {
+.log-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  cursor: pointer;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--glass-border);
+}
+
+.log-modal-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.log-modal-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .log-panel-body {
@@ -378,8 +397,77 @@ body {
   overflow-y: auto;
   font-family: ui-monospace, 'SF Mono', monospace;
   font-size: 0.7rem;
-  padding: 0.5rem;
+  padding: 0.75rem 1rem;
+  max-height: 60vh;
 }
+
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(12, 12, 16, 0.85);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.app-topbar-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.card-menu {
+  position: relative;
+}
+
+.card-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  min-width: 140px;
+  background: rgba(22, 22, 28, 0.98);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 50;
+  padding: 0.35rem;
+}
+
+.card-menu-dropdown[hidden] {
+  display: none;
+}
+
+.card-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.card-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.card-menu-danger {
+  color: var(--danger);
+}
+
+.card {
+  position: relative;
+}
+
 
 .log-line {
   padding: 0.15rem 0;
@@ -430,11 +518,7 @@ body {
 /* SF Pro — paths injected in main.ts for GitHub Pages base URL */
 
 body.has-global-player .main {
-  padding-bottom: 11rem;
-}
-
-body.has-global-player .log-panel {
-  bottom: 5.5rem;
+  padding-bottom: 8rem;
 }
 
 #global-player-root {
