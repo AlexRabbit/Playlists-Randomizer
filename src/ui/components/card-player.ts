@@ -62,7 +62,8 @@ export function mountCard(
     headerActions.appendChild(editBtn);
   }
 
-  headerActions.appendChild(createCardMenu(listId, card));
+  const { wrap: menu, loadFullItem } = createCardMenu(listId, card);
+  headerActions.appendChild(menu);
   header.appendChild(headerActions);
   el.appendChild(header);
 
@@ -71,10 +72,13 @@ export function mountCard(
     return;
   }
 
-  renderPlayer(el, listId, card, apiKey);
+  renderPlayer(el, listId, card, apiKey, loadFullItem);
 }
 
-function createCardMenu(listId: string, card: Card): HTMLElement {
+function createCardMenu(
+  listId: string,
+  card: Card
+): { wrap: HTMLElement; loadFullItem: HTMLButtonElement } {
   const wrap = document.createElement('div');
   wrap.className = 'card-menu';
 
@@ -110,9 +114,16 @@ function createCardMenu(listId: string, card: Card): HTMLElement {
     }
   };
 
-  menu.append(adsBtn, deleteBtn);
+  const loadFullItem = document.createElement('button');
+  loadFullItem.type = 'button';
+  loadFullItem.className = 'card-menu-item';
+  loadFullItem.textContent = t('loadFullPlaylist');
+  loadFullItem.hidden = true;
+
+  menu.append(adsBtn, loadFullItem, deleteBtn);
   wrap.append(trigger, menu);
   bindHaptic(trigger);
+  bindHaptic(loadFullItem);
 
   trigger.onclick = (e) => {
     e.stopPropagation();
@@ -123,7 +134,7 @@ function createCardMenu(listId: string, card: Card): HTMLElement {
   });
   menu.onclick = (e) => e.stopPropagation();
 
-  return wrap;
+  return { wrap, loadFullItem };
 }
 
 function renderEditor(el: HTMLElement, listId: string, card: Card): void {
@@ -165,7 +176,8 @@ function renderPlayer(
   el: HTMLElement,
   listId: string,
   card: Card,
-  apiKey: string | undefined
+  apiKey: string | undefined,
+  loadFullItem: HTMLButtonElement
 ): void {
   const nowPlaying = document.createElement('div');
   nowPlaying.className = 'now-playing';
@@ -229,12 +241,11 @@ function renderPlayer(
 
   const searchBtn = iconButton('search', t('search'));
 
-  const loadFullBtn = document.createElement('button');
-  loadFullBtn.type = 'button';
-  loadFullBtn.className = 'btn btn-primary load-full-btn';
-  loadFullBtn.textContent = t('loadFullPlaylist');
-  loadFullBtn.hidden = true;
-  loadFullBtn.onclick = () => void reloadVideos(true);
+  loadFullItem.onclick = () => {
+    const menu = loadFullItem.closest('.card-menu-dropdown');
+    if (menu instanceof HTMLElement) menu.hidden = true;
+    void reloadVideos(true);
+  };
 
   const ctrl = new YouTubePlayerController(
     playerHost,
@@ -258,7 +269,7 @@ function renderPlayer(
 
   rowMain.append(prev, play, next, volumeEl);
   rowToggles.append(orderSeg, videoBtn, autoBtn, searchBtn);
-  controls.append(rowMain, rowToggles, loadFullBtn);
+  controls.append(rowMain, rowToggles);
   el.append(nowPlaying, playerWrap, thumbGrid, seek.el, timeRow, controls);
 
   let videos: VideoEntry[] = [];
@@ -452,7 +463,7 @@ function renderPlayer(
   async function reloadVideos(forceRefresh = false): Promise<void> {
     nowPlaying.innerHTML = '';
     nowPlaying.appendChild(createSkeletonCard());
-    loadFullBtn.hidden = true;
+    loadFullItem.hidden = true;
     try {
       const { videos: raw, truncated } = await fetchAllPlaylistVideos(
         card.playlistIds,
@@ -477,11 +488,10 @@ function renderPlayer(
   }
 
   function updateLoadFullBtn(): void {
-    loadFullBtn.hidden = !isTruncated();
+    loadFullItem.hidden = !isTruncated();
   }
 
   [prev, play, next, videoBtn, autoBtn, searchBtn].forEach(bindHaptic);
-  bindHaptic(loadFullBtn);
 
   setFocusedCard(card.id);
   reloadVideos();

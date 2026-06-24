@@ -69,6 +69,8 @@ async function fetchPlaylistVideosRss(playlistId: string): Promise<VideoEntry[]>
   return videos;
 }
 
+const PLAYLIST_ID_PREFIX = /^(?:UU|PL|VLPL|OLAK5uy|RD)[A-Za-z0-9_-]+$/;
+
 export function parsePlaylistId(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -77,24 +79,37 @@ export function parsePlaylistId(input: string): string | null {
     /\/show\/([A-Za-z0-9_-]+)/,
     /\/podcast\/([A-Za-z0-9_-]+)/,
     /playlist\/([A-Za-z0-9_-]+)/,
-    /^((?:UU|PL|VLPL|OLAK5uy|RD)[A-Za-z0-9_-]+)$/,
-    /^([A-Za-z0-9_-]{10,})$/,
+    PLAYLIST_ID_PREFIX,
   ];
   for (const re of patterns) {
     const m = trimmed.match(re);
     if (m?.[1]) return m[1];
+    if (re === PLAYLIST_ID_PREFIX && m?.[0]) return m[0];
   }
   return null;
 }
 
+/** YouTube show (VLPL) playlists are not in Data API v3 — Innertube only. */
+export function isInnertubeOnlyPlaylistId(playlistId: string): boolean {
+  return /^VLPL/i.test(playlistId);
+}
+
+export function normalizePlaylistIds(ids: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of ids) {
+    const id = parsePlaylistId(raw);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
 export function parsePlaylistIdsFromText(text: string): string[] {
   const lines = text.split(/[\n,;]+/);
-  const ids = new Set<string>();
-  for (const line of lines) {
-    const id = parsePlaylistId(line);
-    if (id) ids.add(id);
-  }
-  return [...ids];
+  return normalizePlaylistIds(lines);
 }
 
 export interface PlaylistTruncation {
@@ -149,6 +164,21 @@ async function cacheIfWorthwhile(playlistId: string, videos: VideoEntry[]): Prom
   }
 }
 
+async function loadViaInnertube(
+  playlistId: string,
+  truncated: PlaylistTruncation[]
+): Promise<FetchPlaylistsResult> {
+  const innertube = await tryInnertubeWithReset(playlistId);
+  pushTruncation(truncated, playlistId, innertube.videos.length, innertube.totalReported);
+  await cacheIfWorthwhile(playlistId, innertube.videos);
+  log.info('youtube', 'Playlist loaded via Innertube', {
+    playlistId,
+    count: innertube.videos.length,
+    totalReported: innertube.totalReported,
+  });
+  return { videos: innertube.videos, truncated };
+}
+
 export async function fetchPlaylistVideos(
   playlistId: string,
   apiKeyOverride?: string | null,
@@ -170,6 +200,11 @@ export async function fetchPlaylistVideos(
   const apiKey = getApiKey(apiKeyOverride);
   const truncated: PlaylistTruncation[] = [];
   let videos: VideoEntry[] = [];
+
+  // VLPL show playlists — official API and RSS cannot load these
+  if (isInnertubeOnlyPlaylistId(playlistId)) {
+    return loadViaInnertube(playlistId, truncated);
+  }
 
   // 1) User API key → full official API
   if (apiKey) {
@@ -197,16 +232,7 @@ export async function fetchPlaylistVideos(
 
   // 3) Innertube in browser (~100–200 per playlist without API)
   try {
-    const innertube = await tryInnertubeWithReset(playlistId);
-    videos = innertube.videos;
-    pushTruncation(truncated, playlistId, videos.length, innertube.totalReported);
-    await cacheIfWorthwhile(playlistId, videos);
-    log.info('youtube', 'Playlist loaded via Innertube', {
-      playlistId,
-      count: videos.length,
-      totalReported: innertube.totalReported,
-    });
-    return { videos, truncated };
+    return await loadViaInnertube(playlistId, truncated);
   } catch (e) {
     log.warn('youtube', 'Innertube failed', { playlistId, error: String(e) });
   }

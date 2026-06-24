@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parsePlaylistId, parsePlaylistIdsFromText } from '@/core/youtube/playlist';
+import {
+  parsePlaylistId,
+  parsePlaylistIdsFromText,
+  isInnertubeOnlyPlaylistId,
+  normalizePlaylistIds,
+} from '@/core/youtube/playlist';
 
 describe('parsePlaylistId', () => {
   it('parses standard playlist URL', () => {
@@ -16,6 +21,34 @@ describe('parsePlaylistId', () => {
     expect(parsePlaylistId('VLPLNbV3GXqg9TNOr0pC9knjt77fIR6MrEce')).toBe(
       'VLPLNbV3GXqg9TNOr0pC9knjt77fIR6MrEce'
     );
+  });
+
+  it('parses user show URL with sbp query', () => {
+    const url =
+      'https://www.youtube.com/show/VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S?sbp=QAE%253D';
+    expect(parsePlaylistId(url)).toBe('VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S');
+  });
+
+  it('does not treat bare video ids as playlists', () => {
+    expect(parsePlaylistId('dQw4w9WgXcQ')).toBeNull();
+  });
+});
+
+describe('isInnertubeOnlyPlaylistId', () => {
+  it('flags VLPL show playlists', () => {
+    expect(isInnertubeOnlyPlaylistId('VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S')).toBe(true);
+    expect(isInnertubeOnlyPlaylistId('PLabc123')).toBe(false);
+  });
+});
+
+describe('normalizePlaylistIds', () => {
+  it('re-parses stored URLs and dedupes', () => {
+    expect(
+      normalizePlaylistIds([
+        'https://www.youtube.com/show/VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S?sbp=QAE%253D',
+        'VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S',
+      ])
+    ).toEqual(['VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S']);
   });
 });
 

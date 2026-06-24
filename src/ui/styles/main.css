@@ -1379,7 +1379,6 @@ body.has-global-player .main {
   padding-top: 0.15rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-.load-full-btn { width: 100%; margin-top: 0.25rem; }
 .btn-icon-svg { color: rgba(255, 255, 255, 0.92); }
 .btn-icon-svg svg { display: block; margin: auto; }
 .btn-icon-svg.active { color: #ff8a94; box-shadow: 0 0 14px var(--accent-glow); }

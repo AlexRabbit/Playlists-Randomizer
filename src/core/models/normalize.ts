@@ -1,5 +1,6 @@
 import type { Workspace, PlaylistList, Card, CardSettings } from './workspace';
 import { WORKSPACE_VERSION, defaultCardSettings } from './workspace';
+import { normalizePlaylistIds } from '@/core/youtube/playlist';
 
 function normalizeSettings(raw?: Partial<CardSettings>): CardSettings {
   const defaults = defaultCardSettings();
@@ -15,7 +16,7 @@ function normalizeCard(raw: Card): Card {
   return {
     id: raw.id,
     name: raw.name || 'Untitled',
-    playlistIds: Array.isArray(raw.playlistIds) ? [...raw.playlistIds] : [],
+    playlistIds: Array.isArray(raw.playlistIds) ? normalizePlaylistIds(raw.playlistIds) : [],
     settings: normalizeSettings(raw.settings),
     shuffleSeed: raw.shuffleSeed,
     currentVideoIndex: typeof raw.currentVideoIndex === 'number' ? raw.currentVideoIndex : 0,
