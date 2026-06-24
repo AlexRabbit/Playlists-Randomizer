@@ -46,7 +46,7 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
   el.appendChild(addRow);
 
   const nav = document.createElement('nav');
-  nav.className = 'list-nav';
+  nav.className = 'list-nav glass-scroll';
   setupDragReorder(nav, ws.lists, reorderLists, (list, _i, handle) => {
     const row = document.createElement('div');
     row.className = 'list-row';

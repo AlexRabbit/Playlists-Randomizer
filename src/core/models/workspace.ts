@@ -35,6 +35,8 @@ export interface VideoEntry {
   videoId: string;
   title: string;
   playlistId: string;
+  /** Deleted, private, or otherwise not playable */
+  unavailable?: boolean;
 }
 
 export function defaultCardSettings(): CardSettings {

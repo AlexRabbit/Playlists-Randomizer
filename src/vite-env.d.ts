@@ -14,6 +14,9 @@ interface ImportMetaEnv {
   readonly VITE_LOG_MAX_ENTRIES: string;
   readonly VITE_URL_STATE_VERSION: string;
   readonly VITE_LEGACY_PID_COMPAT: string;
+  readonly VITE_PLAYLIST_PROXY_URL?: string;
+  readonly VITE_PLAYLIST_PROXY_B64?: string;
+  readonly VITE_CORS_PROXY_URL?: string;
 }
 
 interface ImportMeta {

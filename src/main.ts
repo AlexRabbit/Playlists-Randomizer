@@ -1,7 +1,10 @@
 import { readWorkspaceFromUrl } from '@/core/url-state/codec';
 import { initApp } from '@/app/store';
 import { log } from '@/logs/logger';
+import { initLocale } from '@/i18n';
 import '@/ui/styles/main.css';
+
+initLocale();
 
 function injectFonts(): void {
   const b = import.meta.env.BASE_URL;
@@ -22,6 +25,26 @@ function injectFonts(): void {
 }
 
 injectFonts();
+initParallaxBubbles();
+
+function initParallaxBubbles(): void {
+  const bubbles = document.querySelector('.bg-bubbles');
+  if (!bubbles) return;
+  let ticking = false;
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        (bubbles as HTMLElement).style.transform = `translateY(${y * 0.12}px)`;
+        ticking = false;
+      });
+    },
+    { passive: true }
+  );
+}
 
 log.info('boot', 'Playlists Randomizer starting', {
   base: import.meta.env.BASE_URL,

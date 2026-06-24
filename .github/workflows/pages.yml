@@ -29,7 +29,7 @@ jobs:
       - run: npm test
       - run: npm run build
         env:
-          VITE_YOUTUBE_API_KEY: ${{ secrets.VITE_YOUTUBE_API_KEY }}
+          VITE_PLAYLIST_PROXY_B64: ${{ secrets.VITE_PLAYLIST_PROXY_B64 }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

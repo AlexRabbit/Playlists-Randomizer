@@ -9,6 +9,8 @@ export interface YTPlayer {
   getCurrentTime(): number;
   getDuration(): number;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
+  setVolume(volume: number): void;
+  getVolume(): number;
   destroy(): void;
   setSize(width: number, height: number): void;
 }
@@ -84,8 +86,13 @@ export function buildPlayerVars(settings: CardSettings): Record<string, string |
 
 const ENDED = 0;
 const PLAYING = 1;
+const PAUSED = 2;
 
 export type SeekCallback = (current: number, duration: number) => void;
+export type PlayerErrorCallback = (code: number) => void;
+
+/** YT iframe error codes that mean skip to next */
+export const SKIPPABLE_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
 
 export class YouTubePlayerController {
   private player: YTPlayer | null = null;
@@ -94,17 +101,23 @@ export class YouTubePlayerController {
   private onEnded?: () => void;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private onSeek?: SeekCallback;
+  private onPlayError?: PlayerErrorCallback;
+  private mounted = false;
+  private currentVideoId: string | null = null;
+  private volume = 100;
 
   constructor(
     container: HTMLElement,
     settings: CardSettings,
     onEnded?: () => void,
-    onSeek?: SeekCallback
+    onSeek?: SeekCallback,
+    onPlayError?: PlayerErrorCallback
   ) {
     this.container = container;
     this.settings = settings;
     this.onEnded = onEnded;
     this.onSeek = onSeek;
+    this.onPlayError = onPlayError;
   }
 
   private startTick(): void {
@@ -116,7 +129,7 @@ export class YouTubePlayerController {
         const dur = this.player.getDuration();
         if (dur > 0) this.onSeek(cur, dur);
       } catch {
-        /* player not ready */
+        /* not ready */
       }
     }, 500);
   }
@@ -126,32 +139,59 @@ export class YouTubePlayerController {
     this.tickTimer = null;
   }
 
-  async init(videoId: string): Promise<void> {
+  private bindEvents(p: YTPlayer): void {
+    /* events set at construction */
+  }
+
+  async load(videoId: string, autoplay = true): Promise<void> {
     await loadYouTubeApi();
-    this.destroy();
     const YT = window.YT!;
-    const h = this.settings.showVideo ? 360 : 1;
-    const w = this.settings.showVideo ? 640 : 1;
-    this.player = new YT.Player(this.container, {
-      height: h,
-      width: w,
-      videoId,
-      playerVars: buildPlayerVars(this.settings),
-      events: {
-        onStateChange: (e) => {
-          if (e.data === ENDED) this.onEnded?.();
-          if (e.data === PLAYING) this.startTick();
-          if (e.data === ENDED || e.data === 2) this.stopTick();
+
+    if (!this.mounted) {
+      const h = this.settings.showVideo ? 360 : 1;
+      const w = this.settings.showVideo ? 640 : 1;
+      this.player = new YT.Player(this.container, {
+        height: h,
+        width: w,
+        videoId,
+        playerVars: { ...buildPlayerVars(this.settings), autoplay: autoplay ? 1 : 0 },
+        events: {
+          onStateChange: (e) => {
+            if (e.data === ENDED) this.onEnded?.();
+            if (e.data === PLAYING) this.startTick();
+            if (e.data === PAUSED || e.data === ENDED) this.stopTick();
+          },
+          onError: (e) => {
+            if (SKIPPABLE_ERROR_CODES.has(e.data)) this.onPlayError?.(e.data);
+          },
+          onReady: (e) => {
+            e.target.setVolume(this.volume);
+            if (autoplay) this.startTick();
+          },
         },
-        onReady: () => this.startTick(),
-      },
-    });
+      });
+      this.mounted = true;
+      this.currentVideoId = videoId;
+      return;
+    }
+
+    if (this.currentVideoId !== videoId) {
+      this.player!.loadVideoById(videoId);
+      this.currentVideoId = videoId;
+      if (autoplay) this.startTick();
+    } else if (autoplay) {
+      this.player!.playVideo();
+      this.startTick();
+    }
+  }
+
+  /** @deprecated use load() */
+  async init(videoId: string): Promise<void> {
+    return this.load(videoId, true);
   }
 
   play(videoId: string): void {
-    if (!this.player) return;
-    this.player.loadVideoById(videoId);
-    this.startTick();
+    void this.load(videoId, true);
   }
 
   pause(): void {
@@ -160,12 +200,26 @@ export class YouTubePlayerController {
   }
 
   resume(): void {
-    this.player?.playVideo();
+    if (!this.player) return;
+    this.player.playVideo();
     this.startTick();
   }
 
   seek(seconds: number): void {
     this.player?.seekTo(seconds, true);
+  }
+
+  setVolume(vol: number): void {
+    this.volume = Math.max(0, Math.min(100, vol));
+    try {
+      this.player?.setVolume(this.volume);
+    } catch {
+      /* not ready */
+    }
+  }
+
+  getVolume(): number {
+    return this.volume;
   }
 
   isPlaying(): boolean {
@@ -176,6 +230,19 @@ export class YouTubePlayerController {
     }
   }
 
+  isPaused(): boolean {
+    try {
+      const s = this.player?.getPlayerState();
+      return s === PAUSED || s === 5; // CUED
+    } catch {
+      return false;
+    }
+  }
+
+  hasPlayer(): boolean {
+    return this.mounted;
+  }
+
   destroy(): void {
     this.stopTick();
     try {
@@ -184,6 +251,8 @@ export class YouTubePlayerController {
       /* noop */
     }
     this.player = null;
+    this.mounted = false;
+    this.currentVideoId = null;
     this.container.innerHTML = '';
   }
 

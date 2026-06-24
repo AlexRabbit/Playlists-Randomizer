@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },
     },
+    optimizeDeps: {
+      include: ['youtubei.js'],
+    },
     build: {
       outDir: 'dist',
       sourcemap: true,
@@ -17,6 +20,7 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             core: ['./src/core/models/workspace.ts', './src/core/url-state/codec.ts'],
+            youtubei: ['youtubei.js'],
           },
         },
       },

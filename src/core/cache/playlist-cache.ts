@@ -1,6 +1,6 @@
 import { log } from '@/logs/logger';
 
-const DB_NAME = 'prr-cache-v1';
+const DB_NAME = 'prr-cache-v5';
 const STORE = 'playlists';
 const TTL_MS = 1000 * 60 * 60 * 24; // 24h client-side cache
 

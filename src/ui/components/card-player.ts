@@ -7,14 +7,30 @@ import {
   setFocusedCard,
   getState,
 } from '@/app/store';
-import { fetchAllPlaylistVideos, orderVideos } from '@/core/youtube/playlist';
+import {
+  fetchAllPlaylistVideos,
+  orderVideos,
+  refreshPlaylistVideos,
+  mergeVideoLists,
+} from '@/core/youtube/playlist';
+import { notifyPlaylistTruncation } from '@/core/youtube/truncation';
 import { YouTubePlayerController } from '@/core/youtube/player';
 import type { VideoEntry } from '@/core/models/workspace';
 import { log } from '@/logs/logger';
 import { createSeekBar, formatTime } from './seek-bar';
-import { openSearchPanel, renderThumbnailGrid } from './search-panel';
+import { openSearchPanel } from './search-panel';
+import {
+  showPlaylistSidebar,
+  hidePlaylistSidebar,
+  updatePlaylistSidebar,
+  type PlaylistSidebarConfig,
+} from './playlist-sidebar';
+import { createSkeletonCard } from './skeleton';
+import { iconButton, icons, setIcon } from '@/ui/icons';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
+import { showToast } from '@/app/toast';
+import type { PlaylistTruncation } from '@/core/youtube/playlist';
 
 const controllers = new Map<string, YouTubePlayerController>();
 
@@ -40,7 +56,8 @@ export function mountCard(
   headerActions.className = 'card-header-actions';
 
   if (!editing && card.playlistIds.length) {
-    const editBtn = iconBtn('✎', t('editPlaylists'));
+    const editBtn = iconButton('edit', t('editPlaylists'));
+    bindHaptic(editBtn);
     editBtn.onclick = () => setEditingCard(card.id);
     headerActions.appendChild(editBtn);
   }
@@ -61,10 +78,24 @@ function createCardMenu(listId: string, card: Card): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'card-menu';
 
-  const trigger = iconBtn('⋮', t('moreActions'));
+  const trigger = iconButton('more', t('moreActions'));
   const menu = document.createElement('div');
-  menu.className = 'card-menu-dropdown';
+  menu.className = 'card-menu-dropdown glass-elevated';
   menu.hidden = true;
+
+  const adsBtn = document.createElement('button');
+  adsBtn.type = 'button';
+  adsBtn.className = 'card-menu-item' + (card.settings.noAds ? ' active' : '');
+  adsBtn.textContent = (card.settings.noAds ? '✓ ' : '') + t('noAdsToggle');
+  adsBtn.onclick = () => {
+    menu.hidden = true;
+    const noAds = !card.settings.noAds;
+    updateCard(listId, card.id, { settings: { ...card.settings, noAds } });
+    card.settings.noAds = noAds;
+    adsBtn.classList.toggle('active', noAds);
+    adsBtn.textContent = (noAds ? '✓ ' : '') + t('noAdsToggle');
+    controllers.get(card.id)?.updateSettings(card.settings);
+  };
 
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
@@ -79,18 +110,17 @@ function createCardMenu(listId: string, card: Card): HTMLElement {
     }
   };
 
-  menu.appendChild(deleteBtn);
+  menu.append(adsBtn, deleteBtn);
   wrap.append(trigger, menu);
+  bindHaptic(trigger);
 
   trigger.onclick = (e) => {
     e.stopPropagation();
     menu.hidden = !menu.hidden;
   };
-
-  const closeMenu = () => {
+  document.addEventListener('click', () => {
     menu.hidden = true;
-  };
-  document.addEventListener('click', closeMenu);
+  });
   menu.onclick = (e) => e.stopPropagation();
 
   return wrap;
@@ -98,7 +128,7 @@ function createCardMenu(listId: string, card: Card): HTMLElement {
 
 function renderEditor(el: HTMLElement, listId: string, card: Card): void {
   const form = document.createElement('div');
-  form.className = 'card-edit';
+  form.className = 'card-edit glass-inset';
 
   const nameLabel = document.createElement('label');
   nameLabel.textContent = t('cardName');
@@ -150,6 +180,7 @@ function renderPlayer(
 
   const thumbGrid = document.createElement('div');
   thumbGrid.className = 'thumb-grid-wrap';
+  thumbGrid.hidden = true;
 
   const seek = createSeekBar((frac) => {
     if (duration > 0) ctrl.seek(frac * duration);
@@ -170,62 +201,187 @@ function renderPlayer(
   const controls = document.createElement('div');
   controls.className = 'controls';
 
-  const prev = iconBtn('⏮', t('previous'));
-  const play = iconBtn('▶', t('playPause'));
-  const next = iconBtn('⏭', t('next'));
-  const randomBtn = iconBtn('🔀', t('random'));
-  randomBtn.classList.toggle('active', card.settings.random);
-  const videoBtn = iconBtn('📺', t('showVideo'));
+  const rowMain = document.createElement('div');
+  rowMain.className = 'controls-row controls-row-main';
+
+  const rowToggles = document.createElement('div');
+  rowToggles.className = 'controls-row controls-row-toggles';
+
+  const prev = iconButton('prev', t('previous'));
+  const play = iconButton('play', t('playPause'));
+  const next = iconButton('next', t('next'));
+
+  const orderSeg = createOrderSegment(card.settings.random, (random) => {
+    updateCard(listId, card.id, {
+      settings: { ...card.settings, random },
+      shuffleSeed: Date.now(),
+      currentVideoIndex: 0,
+    });
+    card.settings.random = random;
+    reloadVideos();
+  });
+
+  const videoBtn = iconButton(card.settings.showVideo ? 'video' : 'videoOff', t('showVideo'));
   videoBtn.classList.toggle('active', card.settings.showVideo);
-  const adsBtn = iconBtn('🚫', t('noAds'));
-  adsBtn.classList.toggle('active', card.settings.noAds);
-  const autoBtn = iconBtn('⏭️', t('autoplayNext'));
+
+  const autoBtn = iconButton('autoplay', t('autoplayNext'));
   autoBtn.classList.toggle('active', card.settings.autoplayNext);
-  const searchBtn = iconBtn('🔍', t('search'));
 
-  controls.append(prev, play, next);
-  const spacer = document.createElement('span');
-  spacer.className = 'spacer';
-  controls.append(spacer, randomBtn, videoBtn, adsBtn, autoBtn, searchBtn);
-  el.append(nowPlaying, playerWrap, thumbGrid, seek.el, timeRow, controls);
+  const searchBtn = iconButton('search', t('search'));
 
-  let videos: VideoEntry[] = [];
-  let index = card.currentVideoIndex ?? 0;
-  let playing = false;
-  let duration = 0;
+  const loadFullBtn = document.createElement('button');
+  loadFullBtn.type = 'button';
+  loadFullBtn.className = 'btn btn-primary load-full-btn';
+  loadFullBtn.textContent = t('loadFullPlaylist');
+  loadFullBtn.hidden = true;
+  loadFullBtn.onclick = () => void reloadVideos(true);
 
   const ctrl = new YouTubePlayerController(
     playerHost,
     card.settings,
     () => {
-      if (card.settings.autoplayNext) go(1);
-      else {
-        playing = false;
-        play.textContent = '▶';
-      }
+      void maybeLoadMore().then(() => {
+        if (card.settings.autoplayNext) skipNext(1);
+        else setPlayIcon(false);
+      });
     },
-    (c, d) => seek.update(c, d)
+    (c, d) => seek.update(c, d),
+    () => {
+      log.warn('player', 'Video playback error, skipping');
+      showToast(t('videoSkipped'));
+      skipNext(1);
+    }
   );
   controllers.set(card.id, ctrl);
 
+  const volumeEl = createVolumeSlider((v) => ctrl.setVolume(v), ctrl.getVolume());
+
+  rowMain.append(prev, play, next, volumeEl);
+  rowToggles.append(orderSeg, videoBtn, autoBtn, searchBtn);
+  controls.append(rowMain, rowToggles, loadFullBtn);
+  el.append(nowPlaying, playerWrap, thumbGrid, seek.el, timeRow, controls);
+
+  let videos: VideoEntry[] = [];
+  let index = card.currentVideoIndex ?? 0;
+  let duration = 0;
+  let loadingMore = false;
+  let truncatedMeta: PlaylistTruncation[] = [];
+  let ownsPlaylistSidebar = false;
+
+  function setPlayIcon(playing: boolean): void {
+    setIcon(play, playing ? 'pause' : 'play');
+  }
+
+  function nextPlayableIndex(from: number, step: number): number {
+    if (!videos.length) return 0;
+    for (let n = 1; n <= videos.length; n++) {
+      const i = (from + step * n + videos.length * 10) % videos.length;
+      if (!videos[i]?.unavailable) return i;
+    }
+    return from;
+  }
+
+  function skipNext(delta: number): void {
+    if (!videos.length) return;
+    const target = nextPlayableIndex(index, delta >= 0 ? 1 : -1);
+    go(target, true);
+  }
+
+  async function maybeLoadMore(): Promise<void> {
+    if (loadingMore || index < videos.length - 3) return;
+    loadingMore = true;
+    nowPlaying.dataset.loading = '1';
+    const hint = nowPlaying.querySelector('.load-hint');
+    if (!hint) {
+      const span = document.createElement('span');
+      span.className = 'load-hint';
+      span.textContent = t('loadingMore');
+      nowPlaying.appendChild(span);
+    }
+    try {
+      const fresh = await refreshPlaylistVideos(card.playlistIds, apiKey);
+      const before = videos.length;
+      videos = mergeVideoLists(videos, fresh);
+      if (card.settings.random && videos.length > before) {
+        const tail = videos.slice(before);
+        videos = [...videos.slice(0, before), ...orderVideos(tail, true, Date.now())];
+      }
+      updateNowPlaying();
+      log.info('player', 'Loaded more videos', { added: videos.length - before, total: videos.length });
+    } catch (e) {
+      log.warn('player', 'Load more failed', { error: String(e) });
+    } finally {
+      loadingMore = false;
+      nowPlaying.querySelector('.load-hint')?.remove();
+    }
+  }
+
+  function adjustIndexAfterReorder(cur: number, from: number, to: number): number {
+    if (cur === from) return to;
+    if (from < cur && to >= cur) return cur - 1;
+    if (from > cur && to <= cur) return cur + 1;
+    return cur;
+  }
+
+  function reorderQueue(from: number, to: number): void {
+    if (from === to || from < 0 || to < 0 || from >= videos.length || to >= videos.length) return;
+    const next = [...videos];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    videos = next;
+    index = adjustIndexAfterReorder(index, from, to);
+    updateCard(listId, card.id, { currentVideoIndex: index });
+    refreshPlaylistSidebar();
+  }
+
+  function isTruncated(): boolean {
+    const t0 = truncatedMeta[0];
+    return (
+      truncatedMeta.length > 0 ||
+      (t0?.total != null && videos.length < (t0.total ?? 0) * 0.95)
+    );
+  }
+
+  function sidebarConfig(): PlaylistSidebarConfig {
+    return {
+      videos,
+      currentIndex: index,
+      onPick: (i) => go(i, true),
+      onReorder: reorderQueue,
+      truncated: isTruncated(),
+      onLoadFull: () => void reloadVideos(true),
+    };
+  }
+
+  function syncVideoPanel(): void {
+    const show = card.settings.showVideo && videos.length > 0;
+    playerWrap.classList.toggle('audio-only', !card.settings.showVideo);
+    if (!show) {
+      hidePlaylistSidebar();
+      ownsPlaylistSidebar = false;
+      return;
+    }
+    ownsPlaylistSidebar = true;
+    showPlaylistSidebar(sidebarConfig());
+  }
+
+  function refreshPlaylistSidebar(): void {
+    if (ownsPlaylistSidebar && card.settings.showVideo) {
+      updatePlaylistSidebar(sidebarConfig());
+    }
+  }
+
   function go(deltaOrIndex: number, absolute = false): void {
     if (!videos.length) return;
-    if (absolute) index = deltaOrIndex;
-    else index = (index + deltaOrIndex + videos.length) % videos.length;
+    let target = absolute ? deltaOrIndex : (index + deltaOrIndex + videos.length) % videos.length;
+    if (videos[target]?.unavailable) target = nextPlayableIndex(target, 1);
+    index = target;
     updateCard(listId, card.id, { currentVideoIndex: index });
     const v = videos[index];
-    if (!playing) {
-      void ctrl.init(v.videoId).then(() => {
-        playing = true;
-        play.textContent = '⏸';
-      });
-    } else {
-      ctrl.play(v.videoId);
-    }
-    play.textContent = '⏸';
-    playing = true;
+    void ctrl.load(v.videoId, true).then(() => setPlayIcon(true));
     updateNowPlaying();
-    if (card.settings.showVideo) renderThumbnailGrid(thumbGrid, videos, index, (i) => go(i, true));
+    refreshPlaylistSidebar();
+    void maybeLoadMore();
   }
 
   function updateNowPlaying(): void {
@@ -240,57 +396,30 @@ function renderPlayer(
   play.onclick = () => {
     setFocusedCard(card.id);
     if (!videos.length) return;
-    if (!playing) {
-      const v = videos[index];
-      void ctrl.init(v.videoId).then(() => {
-        playing = true;
-        play.textContent = '⏸';
-      });
+    if (!ctrl.hasPlayer()) {
+      void ctrl.load(videos[index].videoId, true).then(() => setPlayIcon(true));
     } else if (ctrl.isPlaying()) {
       ctrl.pause();
-      playing = false;
-      play.textContent = '▶';
+      setPlayIcon(false);
     } else {
       ctrl.resume();
-      playing = true;
-      play.textContent = '⏸';
+      setPlayIcon(true);
     }
   };
-  prev.onclick = () => go(-1);
-  next.onclick = () => go(1);
-
-  randomBtn.onclick = () => {
-    const random = !card.settings.random;
-    updateCard(listId, card.id, {
-      settings: { ...card.settings, random },
-      shuffleSeed: Date.now(),
-      currentVideoIndex: 0,
-    });
-    card.settings.random = random;
-    randomBtn.classList.toggle('active', random);
-    reloadVideos();
-  };
+  prev.onclick = () => skipNext(-1);
+  next.onclick = () => skipNext(1);
 
   videoBtn.onclick = () => {
     const showVideo = !card.settings.showVideo;
     updateCard(listId, card.id, { settings: { ...card.settings, showVideo } });
     card.settings.showVideo = showVideo;
     videoBtn.classList.toggle('active', showVideo);
-    playerWrap.classList.toggle('audio-only', !showVideo);
-    thumbGrid.style.display = showVideo ? '' : 'none';
+    setIcon(videoBtn, showVideo ? 'video' : 'videoOff');
     ctrl.updateSettings(card.settings);
-    if (showVideo) renderThumbnailGrid(thumbGrid, videos, index, (i) => go(i, true));
+    syncVideoPanel();
   };
 
   const focused = () => getState().focusedCardId === card.id;
-
-  adsBtn.onclick = () => {
-    const noAds = !card.settings.noAds;
-    updateCard(listId, card.id, { settings: { ...card.settings, noAds } });
-    card.settings.noAds = noAds;
-    adsBtn.classList.toggle('active', noAds);
-    ctrl.updateSettings(card.settings);
-  };
 
   autoBtn.onclick = () => {
     const autoplayNext = !card.settings.autoplayNext;
@@ -320,21 +449,26 @@ function renderPlayer(
   document.addEventListener('prr:card-next', onNext);
   document.addEventListener('prr:search-pick', onSearch);
 
-  async function reloadVideos(): Promise<void> {
-    nowPlaying.textContent = t('loadingPlaylists');
+  async function reloadVideos(forceRefresh = false): Promise<void> {
+    nowPlaying.innerHTML = '';
+    nowPlaying.appendChild(createSkeletonCard());
+    loadFullBtn.hidden = true;
     try {
-      const raw = await fetchAllPlaylistVideos(card.playlistIds, apiKey);
+      const { videos: raw, truncated } = await fetchAllPlaylistVideos(
+        card.playlistIds,
+        apiKey,
+        forceRefresh
+      );
+      truncatedMeta = truncated;
+      if (!forceRefresh) notifyPlaylistTruncation(truncated);
       const seed = card.shuffleSeed ?? Date.now();
       videos = orderVideos(raw, card.settings.random, seed);
       if (!card.shuffleSeed) updateCard(listId, card.id, { shuffleSeed: seed });
       index = Math.min(card.currentVideoIndex ?? 0, Math.max(0, videos.length - 1));
+      if (videos[index]?.unavailable) index = nextPlayableIndex(index, 1);
       updateNowPlaying();
-      if (card.settings.showVideo) {
-        thumbGrid.style.display = '';
-        renderThumbnailGrid(thumbGrid, videos, index, (i) => go(i, true));
-      } else {
-        thumbGrid.style.display = 'none';
-      }
+      updateLoadFullBtn();
+      syncVideoPanel();
       log.info('player', 'Card ready', { card: card.name, videos: videos.length });
     } catch (e) {
       nowPlaying.innerHTML = `<strong>${t('noVideos')}</strong>${t('fetchErrorHint')}`;
@@ -342,19 +476,73 @@ function renderPlayer(
     }
   }
 
+  function updateLoadFullBtn(): void {
+    loadFullBtn.hidden = !isTruncated();
+  }
+
+  [prev, play, next, videoBtn, autoBtn, searchBtn].forEach(bindHaptic);
+  bindHaptic(loadFullBtn);
+
   setFocusedCard(card.id);
   reloadVideos();
 }
 
-function iconBtn(icon: string, label: string): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'btn btn-icon';
-  b.textContent = icon;
-  b.title = label;
-  b.setAttribute('aria-label', label);
-  bindHaptic(b);
-  return b;
+function createOrderSegment(initialRandom: boolean, onChange: (random: boolean) => void): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'segmented';
+  wrap.setAttribute('role', 'group');
+  wrap.setAttribute('aria-label', t('random'));
+
+  let isRandom = initialRandom;
+
+  const seqBtn = document.createElement('button');
+  seqBtn.type = 'button';
+  seqBtn.className = 'segmented-btn' + (!isRandom ? ' active' : '');
+  seqBtn.textContent = t('orderSequential');
+
+  const rndBtn = document.createElement('button');
+  rndBtn.type = 'button';
+  rndBtn.className = 'segmented-btn' + (isRandom ? ' active' : '');
+  rndBtn.textContent = t('orderRandom');
+
+  const syncUi = () => {
+    seqBtn.classList.toggle('active', !isRandom);
+    rndBtn.classList.toggle('active', isRandom);
+  };
+
+  seqBtn.onclick = () => {
+    if (!isRandom) return;
+    isRandom = false;
+    syncUi();
+    onChange(false);
+  };
+  rndBtn.onclick = () => {
+    if (isRandom) return;
+    isRandom = true;
+    syncUi();
+    onChange(true);
+  };
+  wrap.append(seqBtn, rndBtn);
+  return wrap;
+}
+
+function createVolumeSlider(onChange: (v: number) => void, initial = 100): HTMLElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'volume-control';
+  wrap.title = t('volume');
+  wrap.dataset.tooltip = t('volume');
+  const icon = document.createElement('span');
+  icon.className = 'volume-icon';
+  icon.innerHTML = icons.volume;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = '0';
+  input.max = '100';
+  input.value = String(initial);
+  input.className = 'volume-slider';
+  input.oninput = () => onChange(Number(input.value));
+  wrap.append(icon, input);
+  return wrap;
 }
 
 function esc(s: string): string {

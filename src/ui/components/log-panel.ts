@@ -1,5 +1,6 @@
 import { log, type LogEntry } from '@/logs/logger';
 import { t } from '@/i18n';
+import { showToast } from '@/app/toast';
 
 let panelEl: HTMLElement | null = null;
 let bodyEl: HTMLElement | null = null;
@@ -34,7 +35,7 @@ export function renderLogPanel(root: HTMLElement): void {
   panelEl.hidden = true;
 
   const modal = document.createElement('div');
-  modal.className = 'log-modal glass';
+  modal.className = 'log-modal glass glass-frost';
 
   const header = document.createElement('div');
   header.className = 'log-modal-header';
@@ -50,7 +51,10 @@ export function renderLogPanel(root: HTMLElement): void {
   copyBtn.textContent = t('copyLogs');
   copyBtn.onclick = () => {
     const text = log.getEntries().map(formatLine).join('\n');
-    navigator.clipboard.writeText(text || '(empty)').catch(() => {});
+    navigator.clipboard.writeText(text || '(empty)').then(
+      () => showToast(t('logsCopied')),
+      () => showToast('Copy failed')
+    );
   };
 
   const clearBtn = document.createElement('button');
@@ -73,6 +77,7 @@ export function renderLogPanel(root: HTMLElement): void {
   };
 
   const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
   closeBtn.className = 'btn btn-icon';
   closeBtn.textContent = '✕';
   closeBtn.onclick = () => toggleLogPanel();

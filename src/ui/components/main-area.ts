@@ -3,6 +3,7 @@ import { addCard, reorderCards } from '@/app/store';
 import { mountCard } from './card-player';
 import { openSearchPanel } from './search-panel';
 import { fetchAllPlaylistVideos } from '@/core/youtube/playlist';
+import { notifyPlaylistTruncation } from '@/core/youtube/truncation';
 import { t } from '@/i18n';
 import { setupDragReorder } from './drag-reorder';
 
@@ -15,7 +16,7 @@ export function renderMain(
   el.innerHTML = '';
 
   const header = document.createElement('header');
-  header.className = 'header';
+  header.className = 'header glass';
   const h1 = document.createElement('h1');
   h1.textContent = list ? list.name : t('appName');
   header.appendChild(h1);
@@ -29,7 +30,8 @@ export function renderMain(
     searchBtn.textContent = '🔍 ' + t('search');
     searchBtn.onclick = async () => {
       const ids = list.cards.flatMap((c) => c.playlistIds);
-      const videos = await fetchAllPlaylistVideos(ids, workspace.youtubeApiKey);
+      const { videos, truncated } = await fetchAllPlaylistVideos(ids, workspace.youtubeApiKey);
+      notifyPlaylistTruncation(truncated);
       openSearchPanel(videos, (v) => {
         document.dispatchEvent(
           new CustomEvent('prr:search-pick', { detail: { videoId: v.videoId } })

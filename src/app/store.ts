@@ -3,10 +3,15 @@ import { createList, createCard, defaultCardSettings } from '@/core/models/works
 import { writeWorkspaceToUrl, copyBookmarkUrl, readWorkspaceFromUrl } from '@/core/url-state/codec';
 import { downloadBackup, parseBackup } from '@/core/import-export/backup';
 import { fetchAllPlaylistVideos, orderVideos, parsePlaylistIdsFromText } from '@/core/youtube/playlist';
+import { notifyPlaylistTruncation } from '@/core/youtube/truncation';
 import { log } from '@/logs/logger';
 import { renderSidebar } from '@/ui/components/sidebar';
 import { renderMain } from '@/ui/components/main-area';
 import { renderLogPanel, toggleLogPanel } from '@/ui/components/log-panel';
+import {
+  initPlaylistSidebar,
+  isPlaylistSidebarOpen,
+} from '@/ui/components/playlist-sidebar';
 import {
   setGlobalPlayerMount,
   startGlobalSession,
@@ -16,7 +21,8 @@ import {
   globalNext,
   closeGlobalPlayer,
 } from '@/ui/components/global-player';
-import { t } from '@/i18n';
+import { t, listLocales, getLocale, setLocale, getLocaleLabel, notifyLocaleChange } from '@/i18n';
+import { showToast } from '@/app/toast';
 
 export type AppState = {
   workspace: Workspace;
@@ -26,8 +32,11 @@ export type AppState = {
 
 let state: AppState;
 let root: HTMLElement;
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let bookmarkLinkEl: HTMLAnchorElement | null = null;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let playlistSidebarEl: HTMLElement | null = null;
+
+export { showToast };
 
 export function getState(): AppState {
   return state;
@@ -65,18 +74,11 @@ function mountChrome(): void {
 }
 
 function persist(): void {
-  writeWorkspaceToUrl(state.workspace);
-  if (bookmarkLinkEl) bookmarkLinkEl.href = copyBookmarkUrl(state.workspace);
-}
-
-function showToast(msg: string): void {
-  document.querySelector('.toast')?.remove();
-  const t_el = document.createElement('div');
-  t_el.className = 'toast';
-  t_el.textContent = msg;
-  document.body.appendChild(t_el);
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t_el.remove(), 2800);
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    writeWorkspaceToUrl(state.workspace);
+    if (bookmarkLinkEl) bookmarkLinkEl.href = copyBookmarkUrl(state.workspace);
+  }, 450);
 }
 
 function setupKeyboard(): void {
@@ -208,7 +210,8 @@ export async function playAllInList(listId: string): Promise<void> {
     return;
   }
   showToast(t('playAllLoading'));
-  const raw = await fetchAllPlaylistVideos(ids, state.workspace.youtubeApiKey);
+  const { videos: raw, truncated } = await fetchAllPlaylistVideos(ids, state.workspace.youtubeApiKey);
+  notifyPlaylistTruncation(truncated);
   const videos = orderVideos(raw, true, Date.now());
   const settings = { ...defaultCardSettings(), random: true };
   startGlobalSession({
@@ -257,27 +260,68 @@ function getActiveList(): PlaylistList | null {
   return state.workspace.lists.find((l) => l.id === id) ?? state.workspace.lists[0] ?? null;
 }
 
+function ensurePlaylistSidebar(): HTMLElement {
+  if (!playlistSidebarEl) {
+    playlistSidebarEl = document.createElement('aside');
+    playlistSidebarEl.id = 'playlist-sidebar';
+    playlistSidebarEl.className = 'playlist-sidebar glass';
+    initPlaylistSidebar(playlistSidebarEl);
+  }
+  return playlistSidebarEl;
+}
+
 function render(): void {
   const active = getActiveList();
   if (active && !state.workspace.activeListId) state.workspace.activeListId = active.id;
 
+  const playlistOpen = isPlaylistSidebarOpen();
+  const plSidebar = ensurePlaylistSidebar();
+  plSidebar.remove();
+
   root.innerHTML = '';
 
   const topBar = document.createElement('header');
-  topBar.className = 'app-topbar';
+  topBar.className = 'app-topbar glass';
   const topTitle = document.createElement('span');
   topTitle.className = 'app-topbar-title';
-  topTitle.textContent = t('appName');
+  topTitle.textContent = t('appName').toUpperCase();
+  const topActions = document.createElement('div');
+  topActions.className = 'app-topbar-actions';
+
+  const langSelect = document.createElement('select');
+  langSelect.className = 'lang-select';
+  langSelect.title = t('language');
+  for (const loc of listLocales()) {
+    const opt = document.createElement('option');
+    opt.value = loc;
+    opt.textContent = getLocaleLabel(loc);
+    if (loc === getLocale()) opt.selected = true;
+    langSelect.appendChild(opt);
+  }
+  langSelect.onchange = () => {
+    setLocale(langSelect.value as ReturnType<typeof getLocale>);
+    notifyLocaleChange();
+    render();
+  };
+
   const logsBtn = document.createElement('button');
   logsBtn.type = 'button';
   logsBtn.className = 'btn';
   logsBtn.textContent = '🔬 ' + t('logs');
   logsBtn.onclick = () => toggleLogPanel();
-  topBar.append(topTitle, logsBtn);
+
+  topActions.append(langSelect, logsBtn);
+  topBar.append(topTitle, topActions);
   root.appendChild(topBar);
+
+  const appBody = document.createElement('div');
+  appBody.className = 'app-body';
+  appBody.id = 'app-body';
+  if (playlistOpen) appBody.classList.add('playlist-open');
 
   const shell = document.createElement('div');
   shell.className = 'app-shell';
+  shell.id = 'app-shell';
 
   const main = document.createElement('main');
   main.className = 'main';
@@ -289,7 +333,8 @@ function render(): void {
   renderSidebar(sidebar, state.workspace);
   shell.appendChild(sidebar);
 
-  root.appendChild(shell);
+  appBody.append(plSidebar, shell);
+  root.appendChild(appBody);
 }
 
 /** Reload workspace from current URL (after external navigation) */
