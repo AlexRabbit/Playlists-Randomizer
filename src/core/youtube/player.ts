@@ -92,6 +92,7 @@ export function buildPlayerVars(settings: CardSettings): Record<string, string |
 const ENDED = 0;
 const PLAYING = 1;
 const PAUSED = 2;
+const BUFFERING = 3;
 
 export type SeekCallback = (current: number, duration: number) => void;
 export type PlayerErrorCallback = (code: number) => void;
@@ -114,6 +115,7 @@ export class YouTubePlayerController {
   private currentVideoId: string | null = null;
   private volume = 100;
   private iframeReady: Promise<void> | null = null;
+  private userWantsPlay = false;
 
   constructor(
     container: HTMLElement,
@@ -211,8 +213,8 @@ export class YouTubePlayerController {
   private async ensureIframe(videoId: string, startAt = 0): Promise<void> {
     await loadYouTubeApi();
     const YT = window.YT!;
-    const h = this.settings.showVideo ? 360 : 1;
-    const w = this.settings.showVideo ? 640 : 1;
+    const h = 360;
+    const w = 640;
 
     if (!this.mounted) {
       this.iframeReady = new Promise((resolve) => {
@@ -283,6 +285,7 @@ export class YouTubePlayerController {
   }
 
   private async startPlayback(): Promise<void> {
+    this.userWantsPlay = true;
     if (this.useBoost && this.boost) {
       try {
         await this.boost.play();
@@ -308,6 +311,7 @@ export class YouTubePlayerController {
     const needsIframe = this.settings.showVideo || !boostOk;
     if (needsIframe) {
       await this.ensureIframe(videoId);
+      if (!this.settings.showVideo) this.hideVideoSurface();
     }
 
     this.currentVideoId = videoId;
@@ -326,6 +330,7 @@ export class YouTubePlayerController {
   }
 
   pause(): void {
+    this.userWantsPlay = false;
     this.boost?.pause();
     this.player?.pauseVideo();
     this.stopTick();
@@ -378,6 +383,19 @@ export class YouTubePlayerController {
     } catch {
       return 0;
     }
+  }
+
+  wantsPlayback(): boolean {
+    return this.userWantsPlay;
+  }
+
+  getPlaybackTime(): number {
+    return this.getCurrentTime();
+  }
+
+  restorePlayback(pos: number, shouldPlay: boolean): void {
+    if (pos > 0.5) this.seek(pos);
+    if (shouldPlay) void this.resumeAfterSurfaceChange(pos);
   }
 
   /** Show iframe at full size (overlay open) without reloading. */
@@ -456,11 +474,13 @@ export class YouTubePlayerController {
 
     this.showVideoSurface();
 
-    if (!this.useBoost && pos > 0.5) this.seek(pos);
+    if (this.useBoost && this.userWantsPlay) this.syncIframeVideoAt(pos);
+    else if (!this.useBoost && pos > 0.5) this.seek(pos);
   }
 
-  async resumeAfterSurfaceChange(): Promise<void> {
-    const pos = this.getCurrentTime();
+  async resumeAfterSurfaceChange(savedPos?: number): Promise<void> {
+    const pos = savedPos ?? this.getCurrentTime();
+    this.userWantsPlay = true;
     if (this.useBoost && this.boost) {
       if (!this.boost.isPlaying()) {
         try {
@@ -483,11 +503,14 @@ export class YouTubePlayerController {
   }
 
   isPlaying(): boolean {
+    if (!this.userWantsPlay) return false;
     if (this.useBoost && this.boost?.isPlaying()) return true;
     try {
-      return this.player?.getPlayerState() === PLAYING;
+      const state = this.player?.getPlayerState();
+      if (state === PLAYING || state === BUFFERING) return true;
+      return this.userWantsPlay;
     } catch {
-      return false;
+      return this.userWantsPlay;
     }
   }
 

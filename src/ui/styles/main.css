@@ -769,6 +769,46 @@ body.playlist-open #global-player-root {
   aspect-ratio: unset;
 }
 
+/* Body-level YouTube mount — never reparented (YT iframe breaks on DOM moves) */
+.player-mount {
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+
+.player-mount-hidden {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 640px;
+  height: 360px;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.player-mount-overlay {
+  position: fixed;
+  z-index: 902;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow:
+    0 0 0 1px rgba(255, 90, 110, 0.4),
+    0 0 40px rgba(230, 57, 70, 0.22);
+}
+
+.player-mount .player-host {
+  width: 100%;
+  height: 100%;
+}
+
+.player-mount .player-host iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Body-level video overlay — escapes card transform/stacking context */
 body.video-overlay-open {
   overflow: hidden;
@@ -819,10 +859,8 @@ body.video-overlay-open {
   max-height: min(72vh, calc(92vw * 9 / 16));
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: #000;
-  box-shadow:
-    0 0 0 1px rgba(255, 90, 110, 0.4),
-    0 0 40px rgba(230, 57, 70, 0.22);
+  background: transparent;
+  pointer-events: none;
 }
 
 .video-overlay-stage .player-host {
@@ -839,7 +877,7 @@ body.video-overlay-open {
   position: absolute;
   top: 0.35rem;
   right: 0.35rem;
-  z-index: 3;
+  z-index: 910;
   width: 2rem;
   height: 2rem;
   min-width: 2rem;

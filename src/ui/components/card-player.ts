@@ -189,6 +189,7 @@ function renderPlayer(
   loadFullItem: HTMLButtonElement
 ): void {
   document.querySelectorAll('.video-overlay').forEach((node) => node.remove());
+  document.querySelectorAll(`.player-mount[data-card-id="${card.id}"]`).forEach((node) => node.remove());
   document.body.classList.remove('video-overlay-open');
 
   const nowPlaying = document.createElement('div');
@@ -197,11 +198,17 @@ function renderPlayer(
 
   const audioSlot = document.createElement('div');
   audioSlot.className = 'player-area audio-only';
+  audioSlot.hidden = true;
+
+  const playerMount = document.createElement('div');
+  playerMount.className = 'player-mount player-mount-hidden';
+  playerMount.dataset.cardId = card.id;
 
   const playerHost = document.createElement('div');
   playerHost.id = `yt-${card.id}`;
   playerHost.className = 'player-host';
-  audioSlot.appendChild(playerHost);
+  playerMount.appendChild(playerHost);
+  document.body.appendChild(playerMount);
 
   const videoOverlay = document.createElement('div');
   videoOverlay.className = 'video-overlay';
@@ -313,57 +320,96 @@ function renderPlayer(
   controls.append(rowMain, rowToggles);
   el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
 
-  function dockPlayerInCard(): void {
-    if (playerHost.parentElement !== audioSlot) audioSlot.appendChild(playerHost);
+  function dockControlsInCard(): void {
     if (seek.el.parentElement !== el) {
       el.append(nowPlaying, audioSlot, thumbGrid, seek.el, timeRow, controls);
     }
   }
 
-  function openVideoOverlay(): void {
-    const wasPlaying = ctrl.isPlaying();
-    const pos = ctrl.getCurrentTime();
+  let overlayOpen = false;
+  let stageEl: HTMLElement | null = null;
+  let positionListener: (() => void) | null = null;
+  let stageObserver: ResizeObserver | null = null;
 
+  function positionPlayerOverStage(): void {
+    if (!stageEl || !overlayOpen) return;
+    const r = stageEl.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    playerMount.style.left = `${r.left}px`;
+    playerMount.style.top = `${r.top}px`;
+    playerMount.style.width = `${r.width}px`;
+    playerMount.style.height = `${r.height}px`;
+  }
+
+  function openVideoOverlay(): void {
+    if (overlayOpen) {
+      positionPlayerOverStage();
+      return;
+    }
+
+    const shouldPlay = ctrl.wantsPlayback();
+    const pos = ctrl.getPlaybackTime();
+
+    overlayOpen = true;
     videoOverlay.hidden = false;
     if (!videoOverlay.isConnected) document.body.appendChild(videoOverlay);
 
-    const stage = document.createElement('div');
-    stage.className = 'video-overlay-stage';
-    stage.appendChild(playerHost);
+    stageEl = document.createElement('div');
+    stageEl.className = 'video-overlay-stage';
 
     videoPanel.replaceChildren();
-    videoPanel.append(videoCloseBtn, stage, seek.el, timeRow, controls);
+    videoPanel.append(videoCloseBtn, stageEl, seek.el, timeRow, controls);
     document.body.classList.add('video-overlay-open');
 
-    void ctrl.attachVideoSurface().then(() => {
-      if (pos > 0.5) ctrl.seek(pos);
-      if (wasPlaying) {
-        void ctrl.resumeAfterSurfaceChange().then(() => setPlayIcon(true));
-      } else {
-        ctrl.pause();
-        setPlayIcon(false);
-      }
+    playerMount.classList.remove('player-mount-hidden');
+    playerMount.classList.add('player-mount-overlay');
+
+    positionListener = () => positionPlayerOverStage();
+    window.addEventListener('resize', positionListener);
+    stageObserver = new ResizeObserver(() => positionPlayerOverStage());
+    stageObserver.observe(stageEl);
+    stageObserver.observe(videoPanel);
+
+    requestAnimationFrame(() => {
+      positionPlayerOverStage();
+      void ctrl.attachVideoSurface().then(() => {
+        ctrl.restorePlayback(pos, shouldPlay);
+        setPlayIcon(shouldPlay);
+      });
     });
   }
 
   function teardownVideoOverlay(): void {
-    const wasPlaying = ctrl.isPlaying();
-    const pos = ctrl.getCurrentTime();
+    if (!overlayOpen) return;
+
+    const shouldPlay = ctrl.wantsPlayback();
+    const pos = ctrl.getPlaybackTime();
+
+    overlayOpen = false;
+    stageEl = null;
+    if (positionListener) {
+      window.removeEventListener('resize', positionListener);
+      positionListener = null;
+    }
+    stageObserver?.disconnect();
+    stageObserver = null;
+
+    playerMount.classList.add('player-mount-hidden');
+    playerMount.classList.remove('player-mount-overlay');
+    playerMount.style.left = '';
+    playerMount.style.top = '';
+    playerMount.style.width = '';
+    playerMount.style.height = '';
 
     ctrl.hideVideoSurface();
-    dockPlayerInCard();
+    dockControlsInCard();
 
     videoOverlay.hidden = true;
     if (videoOverlay.isConnected) videoOverlay.remove();
     document.body.classList.remove('video-overlay-open');
 
-    if (pos > 0.5) ctrl.seek(pos);
-    if (wasPlaying) {
-      void ctrl.resumeAfterSurfaceChange().then(() => setPlayIcon(true));
-    } else {
-      ctrl.pause();
-      setPlayIcon(false);
-    }
+    ctrl.restorePlayback(pos, shouldPlay);
+    setPlayIcon(shouldPlay);
   }
 
   let videos: VideoEntry[] = [];
