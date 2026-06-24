@@ -30,9 +30,19 @@ import { iconButton, icons, setIcon } from '@/ui/icons';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
 import { showToast } from '@/app/toast';
+import { onCardPlaybackStart, listenForPlaybackCoordination } from '@/core/playback/coordinator';
+import { VOLUME_SLIDER_MAX } from '@/core/youtube/player';
 import type { PlaylistTruncation } from '@/core/youtube/playlist';
 
 const controllers = new Map<string, YouTubePlayerController>();
+
+export function pauseAllCardPlayers(): void {
+  for (const ctrl of controllers.values()) {
+    if (ctrl.isPlaying()) ctrl.pause();
+  }
+}
+
+listenForPlaybackCoordination({ onPauseCards: () => pauseAllCardPlayers() });
 
 export function mountCard(
   el: HTMLElement,
@@ -117,8 +127,7 @@ function createCardMenu(
   const loadFullItem = document.createElement('button');
   loadFullItem.type = 'button';
   loadFullItem.className = 'card-menu-item';
-  loadFullItem.textContent = t('loadFullPlaylist');
-  loadFullItem.hidden = true;
+  loadFullItem.textContent = t('reloadPlaylists');
 
   menu.append(adsBtn, loadFullItem, deleteBtn);
   wrap.append(trigger, menu);
@@ -247,10 +256,19 @@ function renderPlayer(
     void reloadVideos(true);
   };
 
+  let cardIsPlaying = false;
+
+  function setCardPlaying(playing: boolean): void {
+    cardIsPlaying = playing;
+    el.classList.toggle('is-playing', playing);
+    updateNowPlaying();
+  }
+
   const ctrl = new YouTubePlayerController(
     playerHost,
     card.settings,
     () => {
+      setCardPlaying(false);
       void maybeLoadMore().then(() => {
         if (card.settings.autoplayNext) skipNext(1);
         else setPlayIcon(false);
@@ -261,7 +279,8 @@ function renderPlayer(
       log.warn('player', 'Video playback error, skipping');
       showToast(t('videoSkipped'));
       skipNext(1);
-    }
+    },
+    (playing) => setCardPlaying(playing)
   );
   controllers.set(card.id, ctrl);
 
@@ -389,6 +408,7 @@ function renderPlayer(
     index = target;
     updateCard(listId, card.id, { currentVideoIndex: index });
     const v = videos[index];
+    onCardPlaybackStart();
     void ctrl.load(v.videoId, true).then(() => setPlayIcon(true));
     updateNowPlaying();
     refreshPlaylistSidebar();
@@ -397,22 +417,36 @@ function renderPlayer(
 
   function updateNowPlaying(): void {
     const v = videos[index];
+    nowPlaying.replaceChildren();
     if (!v) {
-      nowPlaying.innerHTML = `<strong>${t('noVideos')}</strong>${t('noVideosHint')}`;
+      const strong = document.createElement('strong');
+      strong.textContent = t('noVideos');
+      const hint = document.createElement('span');
+      hint.className = 'now-playing-hint';
+      hint.textContent = t('noVideosHint');
+      nowPlaying.append(strong, hint);
       return;
     }
-    nowPlaying.innerHTML = `<strong>${esc(v.title)}</strong>${index + 1} / ${videos.length}`;
+    const title = document.createElement('strong');
+    title.className = 'track-title' + (cardIsPlaying ? ' revealed' : ' spoiler');
+    title.textContent = v.title;
+    const meta = document.createElement('span');
+    meta.className = 'now-playing-meta';
+    meta.textContent = `${index + 1} / ${videos.length}`;
+    nowPlaying.append(title, meta);
   }
 
   play.onclick = () => {
     setFocusedCard(card.id);
     if (!videos.length) return;
     if (!ctrl.hasPlayer()) {
+      onCardPlaybackStart();
       void ctrl.load(videos[index].videoId, true).then(() => setPlayIcon(true));
     } else if (ctrl.isPlaying()) {
       ctrl.pause();
       setPlayIcon(false);
     } else {
+      onCardPlaybackStart();
       ctrl.resume();
       setPlayIcon(true);
     }
@@ -461,9 +495,8 @@ function renderPlayer(
   document.addEventListener('prr:search-pick', onSearch);
 
   async function reloadVideos(forceRefresh = false): Promise<void> {
-    nowPlaying.innerHTML = '';
+    nowPlaying.replaceChildren();
     nowPlaying.appendChild(createSkeletonCard());
-    loadFullItem.hidden = true;
     try {
       const { videos: raw, truncated } = await fetchAllPlaylistVideos(
         card.playlistIds,
@@ -478,17 +511,18 @@ function renderPlayer(
       index = Math.min(card.currentVideoIndex ?? 0, Math.max(0, videos.length - 1));
       if (videos[index]?.unavailable) index = nextPlayableIndex(index, 1);
       updateNowPlaying();
-      updateLoadFullBtn();
       syncVideoPanel();
       log.info('player', 'Card ready', { card: card.name, videos: videos.length });
     } catch (e) {
-      nowPlaying.innerHTML = `<strong>${t('noVideos')}</strong>${t('fetchErrorHint')}`;
+      nowPlaying.replaceChildren();
+      const strong = document.createElement('strong');
+      strong.textContent = t('noVideos');
+      const hint = document.createElement('span');
+      hint.className = 'now-playing-hint';
+      hint.textContent = t('fetchErrorHint');
+      nowPlaying.append(strong, hint);
       log.error('player', 'Load failed', { error: String(e) });
     }
-  }
-
-  function updateLoadFullBtn(): void {
-    loadFullItem.hidden = !isTruncated();
   }
 
   [prev, play, next, videoBtn, autoBtn, searchBtn].forEach(bindHaptic);
@@ -547,16 +581,10 @@ function createVolumeSlider(onChange: (v: number) => void, initial = 100): HTMLE
   const input = document.createElement('input');
   input.type = 'range';
   input.min = '0';
-  input.max = '100';
+  input.max = String(VOLUME_SLIDER_MAX);
   input.value = String(initial);
   input.className = 'volume-slider';
   input.oninput = () => onChange(Number(input.value));
   wrap.append(icon, input);
   return wrap;
-}
-
-function esc(s: string): string {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }

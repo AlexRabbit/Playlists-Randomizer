@@ -29,6 +29,12 @@ describe('parsePlaylistId', () => {
     expect(parsePlaylistId(url)).toBe('VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S');
   });
 
+  it('parses podcast URL same as show', () => {
+    const url = 'https://www.youtube.com/podcast/VLPLabc123xyz?sbp=foo';
+    expect(parsePlaylistId(url)).toBe('VLPLabc123xyz');
+    expect(isInnertubeOnlyPlaylistId('VLPLabc123xyz')).toBe(true);
+  });
+
   it('does not treat bare video ids as playlists', () => {
     expect(parsePlaylistId('dQw4w9WgXcQ')).toBeNull();
   });
@@ -37,7 +43,8 @@ describe('parsePlaylistId', () => {
 describe('isInnertubeOnlyPlaylistId', () => {
   it('flags VLPL show playlists', () => {
     expect(isInnertubeOnlyPlaylistId('VLPLNbV3GXqg9TPnqNVN3f1mAZE1IxnURN8S')).toBe(true);
-    expect(isInnertubeOnlyPlaylistId('PLabc123')).toBe(false);
+    expect(isInnertubeOnlyPlaylistId('PLNbV3GXqg9TNjveYH22HWZkFOSuAdSfWG')).toBe(true);
+    expect(isInnertubeOnlyPlaylistId('PLrAXtmRdnEQy6nuLMH8pKxXpi0')).toBe(false);
   });
 });
 

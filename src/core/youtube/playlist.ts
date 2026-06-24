@@ -89,9 +89,9 @@ export function parsePlaylistId(input: string): string | null {
   return null;
 }
 
-/** YouTube show (VLPL) playlists are not in Data API v3 — Innertube only. */
+/** YouTube show/podcast playlists — not in Data API v3; Innertube only (VLPL or PLN… ids). */
 export function isInnertubeOnlyPlaylistId(playlistId: string): boolean {
-  return /^VLPL/i.test(playlistId);
+  return /^VLPL/i.test(playlistId) || /^PLN/i.test(playlistId);
 }
 
 export function normalizePlaylistIds(ids: string[]): string[] {
@@ -201,9 +201,35 @@ export async function fetchPlaylistVideos(
   const truncated: PlaylistTruncation[] = [];
   let videos: VideoEntry[] = [];
 
-  // VLPL show playlists — official API and RSS cannot load these
+  // Show/podcast playlists — Data API, RSS, and most proxies cannot load these
   if (isInnertubeOnlyPlaylistId(playlistId)) {
-    return loadViaInnertube(playlistId, truncated);
+    try {
+      return await loadViaInnertube(playlistId, truncated);
+    } catch (e) {
+      log.warn('youtube', 'Browser Innertube failed for show playlist, trying proxy', {
+        playlistId,
+        error: String(e),
+      });
+    }
+    if (hasPlaylistProxy()) {
+      try {
+        videos = await withRetry(() => fetchPlaylistVideosProxy(playlistId));
+        await cacheIfWorthwhile(playlistId, videos);
+        log.info('youtube', 'Show playlist loaded via proxy Innertube', {
+          playlistId,
+          count: videos.length,
+        });
+        return { videos, truncated };
+      } catch (e) {
+        log.warn('youtube', 'Proxy Innertube failed for show playlist', {
+          playlistId,
+          error: String(e),
+        });
+      }
+    }
+    throw new Error(
+      `Show playlist ${playlistId}: could not load (needs Innertube — try reloading or redeploy proxy)`
+    );
   }
 
   // 1) User API key → full official API

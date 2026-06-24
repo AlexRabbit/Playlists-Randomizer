@@ -1,7 +1,15 @@
 import type { VideoEntry, CardSettings } from '@/core/models/workspace';
 import { youtubeThumbUrl } from '@/core/models/workspace';
-import { YouTubePlayerController } from '@/core/youtube/player';
+import { YouTubePlayerController, VOLUME_SLIDER_MAX } from '@/core/youtube/player';
+import { onGlobalPlaybackStart, listenForPlaybackCoordination } from '@/core/playback/coordinator';
 import { createSeekBar, formatTime } from './seek-bar';
+import { openSearchPanel } from './search-panel';
+import {
+  showPlaylistSidebar,
+  hidePlaylistSidebar,
+  updatePlaylistSidebar,
+  type PlaylistSidebarConfig,
+} from './playlist-sidebar';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
 import { iconButton, icons, setIcon } from '@/ui/icons';
@@ -21,17 +29,20 @@ let controller: YouTubePlayerController | null = null;
 let rootEl: HTMLElement | null = null;
 let hostEl: HTMLElement | null = null;
 let playBtnEl: HTMLButtonElement | null = null;
+let videoBtnEl: HTMLButtonElement | null = null;
+let autoBtnEl: HTMLButtonElement | null = null;
 let titleEl: HTMLElement | null = null;
 let metaEl: HTMLElement | null = null;
-let queueEl: HTMLElement | null = null;
-let seekUpdater: ((c: number, d: number) => void) | null = null;
+let seekUpdater: ((c: number, duration: number) => void) | null = null;
 let durationCache = 0;
 let onChange: (() => void) | null = null;
 let domReady = false;
+let ownsPlaylistSidebar = false;
 
 export function setGlobalPlayerMount(el: HTMLElement, cb: () => void): void {
   rootEl = el;
   onChange = cb;
+  listenForPlaybackCoordination({ onPauseGlobal: () => pauseGlobalPlayback() });
   renderShell();
 }
 
@@ -39,10 +50,18 @@ export function getGlobalSession(): GlobalPlayerSession | null {
   return session;
 }
 
+export function pauseGlobalPlayback(): void {
+  if (!session || !controller?.isPlaying()) return;
+  controller.pause();
+  session.playing = false;
+  if (playBtnEl) setIcon(playBtnEl, 'play');
+}
+
 export function startGlobalSession(s: Omit<GlobalPlayerSession, 'playing'>): void {
   controller?.destroy();
   controller = null;
   domReady = false;
+  ownsPlaylistSidebar = false;
   session = { ...s, playing: false };
   document.body.classList.add('has-global-player');
   renderShell();
@@ -54,6 +73,8 @@ export function closeGlobalPlayer(): void {
   controller = null;
   session = null;
   domReady = false;
+  ownsPlaylistSidebar = false;
+  hidePlaylistSidebar();
   document.body.classList.remove('has-global-player');
   if (rootEl) {
     rootEl.innerHTML = '';
@@ -84,19 +105,56 @@ export function globalTogglePlay(): void {
     controller.pause();
     session.playing = false;
   } else {
+    onGlobalPlaybackStart();
     controller.resume();
     session.playing = true;
   }
   if (playBtnEl) setIcon(playBtnEl, session.playing ? 'pause' : 'play');
 }
 
+function sidebarConfig(): PlaylistSidebarConfig | null {
+  if (!session) return null;
+  return {
+    videos: session.videos,
+    currentIndex: session.index,
+    onPick: (i) => void playAt(i, true),
+    truncated: false,
+  };
+}
+
+function syncVideoPanel(): void {
+  if (!session) return;
+  const show = session.settings.showVideo && session.videos.length > 0;
+  if (hostEl) {
+    hostEl.classList.toggle('sr-only', !show);
+    hostEl.classList.toggle('global-player-host-visible', show);
+  }
+  if (!show) {
+    hidePlaylistSidebar();
+    ownsPlaylistSidebar = false;
+    return;
+  }
+  const cfg = sidebarConfig();
+  if (!cfg) return;
+  ownsPlaylistSidebar = true;
+  showPlaylistSidebar(cfg);
+}
+
+function refreshPlaylistSidebar(): void {
+  if (!ownsPlaylistSidebar || !session?.settings.showVideo) return;
+  const cfg = sidebarConfig();
+  if (cfg) updatePlaylistSidebar(cfg);
+}
+
 async function playAt(index: number, autoplay: boolean): Promise<void> {
   if (!session || !hostEl) return;
   const v = session.videos[index];
   if (!v) return;
+  if (autoplay) onGlobalPlaybackStart();
   session.index = index;
   updateMeta();
-  renderQueue();
+  syncVideoPanel();
+  refreshPlaylistSidebar();
 
   if (!controller) {
     controller = new YouTubePlayerController(
@@ -117,8 +175,14 @@ async function playAt(index: number, autoplay: boolean): Promise<void> {
       () => {
         showToast(t('videoSkipped'));
         globalNext();
+      },
+      (playing) => {
+        if (session) session.playing = playing;
+        if (playBtnEl) setIcon(playBtnEl, playing ? 'pause' : 'play');
       }
     );
+  } else {
+    controller.updateSettings(session.settings);
   }
 
   await controller.load(v.videoId, autoplay);
@@ -134,20 +198,6 @@ function updateMeta(): void {
   metaEl.textContent = `${session.listName} · ${session.index + 1}/${session.videos.length}`;
 }
 
-function renderQueue(): void {
-  if (!queueEl || !session) return;
-  queueEl.innerHTML = '';
-  session.videos.forEach((v, i) => {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'queue-row' + (i === session!.index ? ' active' : '');
-    row.innerHTML = `<img src="${youtubeThumbUrl(v.videoId)}" alt="" loading="lazy" /><span>${esc(v.title)}</span>`;
-    row.onclick = () => void playAt(i, true);
-    bindHaptic(row);
-    queueEl!.appendChild(row);
-  });
-}
-
 function renderShell(): void {
   if (!rootEl) return;
   if (!session) {
@@ -160,7 +210,8 @@ function renderShell(): void {
 
   if (domReady) {
     updateMeta();
-    renderQueue();
+    syncVideoPanel();
+    refreshPlaylistSidebar();
     return;
   }
 
@@ -177,14 +228,6 @@ function renderShell(): void {
   metaEl = document.createElement('span');
   metaEl.className = 'global-meta';
   info.append(label, titleEl, metaEl);
-
-  const queueDetails = document.createElement('details');
-  queueDetails.className = 'queue-panel';
-  const queueSum = document.createElement('summary');
-  queueSum.textContent = `${t('queue')} (${session.videos.length})`;
-  queueEl = document.createElement('div');
-  queueEl.className = 'queue-list glass-scroll';
-  queueDetails.append(queueSum, queueEl);
 
   hostEl = document.createElement('div');
   hostEl.className = 'global-player-host';
@@ -216,28 +259,68 @@ function renderShell(): void {
   const volInput = document.createElement('input');
   volInput.type = 'range';
   volInput.min = '0';
-  volInput.max = '100';
+  volInput.max = String(VOLUME_SLIDER_MAX);
   volInput.value = '100';
   volInput.className = 'volume-slider';
   volInput.oninput = () => controller?.setVolume(Number(volInput.value));
   volWrap.append(volIcon, volInput);
 
-  const controls = document.createElement('div');
-  controls.className = 'global-player-controls';
+  const rowMain = document.createElement('div');
+  rowMain.className = 'controls-row controls-row-main global-controls-main';
+
+  const rowToggles = document.createElement('div');
+  rowToggles.className = 'controls-row controls-row-toggles global-controls-toggles';
+
   const prev = mkBtn('prev', t('previous'), () => globalPrev());
   playBtnEl = mkBtn('play', t('playPause'), () => globalTogglePlay());
   const next = mkBtn('next', t('next'), () => globalNext());
+
+  videoBtnEl = iconButton(session.settings.showVideo ? 'video' : 'videoOff', t('showVideo'));
+  videoBtnEl.classList.toggle('active', session.settings.showVideo);
+  videoBtnEl.onclick = () => {
+    if (!session) return;
+    const showVideo = !session.settings.showVideo;
+    session.settings = { ...session.settings, showVideo };
+    setIcon(videoBtnEl!, showVideo ? 'video' : 'videoOff');
+    videoBtnEl!.classList.toggle('active', showVideo);
+    controller?.updateSettings(session.settings);
+    syncVideoPanel();
+  };
+
+  autoBtnEl = iconButton('autoplay', t('autoplayNext'));
+  autoBtnEl.classList.toggle('active', session.settings.autoplayNext);
+  autoBtnEl.onclick = () => {
+    if (!session) return;
+    session.settings = { ...session.settings, autoplayNext: !session.settings.autoplayNext };
+    autoBtnEl!.classList.toggle('active', session.settings.autoplayNext);
+  };
+
+  const searchBtn = iconButton('search', t('search'));
+  searchBtn.onclick = () => {
+    if (!session?.videos.length) return;
+    openSearchPanel(session.videos, (_, idx) => void playAt(idx, true));
+  };
+
   const close = mkBtn('close', t('closePlayer'), () => closeGlobalPlayer());
-  controls.append(prev, playBtnEl, next, volWrap, close);
+
+  rowMain.append(prev, playBtnEl, next, volWrap);
+  rowToggles.append(videoBtnEl, autoBtnEl, searchBtn);
+  bindHaptic(videoBtnEl);
+  bindHaptic(autoBtnEl);
+  bindHaptic(searchBtn);
+
+  const controls = document.createElement('div');
+  controls.className = 'global-player-controls';
+  controls.append(rowMain, rowToggles, close);
 
   const body = document.createElement('div');
   body.className = 'global-player-body';
-  body.append(info, queueDetails, hostEl, seek.el, timeRow, controls);
+  body.append(info, hostEl, seek.el, timeRow, controls);
   bar.append(body);
   rootEl.appendChild(bar);
   domReady = true;
   updateMeta();
-  renderQueue();
+  syncVideoPanel();
 }
 
 function mkBtn(icon: 'prev' | 'play' | 'pause' | 'next' | 'close', label: string, fn: () => void): HTMLButtonElement {
@@ -245,10 +328,4 @@ function mkBtn(icon: 'prev' | 'play' | 'pause' | 'next' | 'close', label: string
   b.onclick = fn;
   bindHaptic(b);
   return b;
-}
-
-function esc(s: string): string {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }

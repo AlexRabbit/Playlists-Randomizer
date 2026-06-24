@@ -90,6 +90,14 @@ const PAUSED = 2;
 
 export type SeekCallback = (current: number, duration: number) => void;
 export type PlayerErrorCallback = (code: number) => void;
+export type PlayStateCallback = (playing: boolean) => void;
+
+/** UI volume slider max; YouTube iframe API accepts 0–100 only. */
+export const VOLUME_SLIDER_MAX = 135;
+
+export function volumeToYoutubeApi(sliderValue: number): number {
+  return Math.round(Math.max(0, Math.min(100, sliderValue)));
+}
 
 /** YT iframe error codes that mean skip to next */
 export const SKIPPABLE_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
@@ -102,6 +110,7 @@ export class YouTubePlayerController {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private onSeek?: SeekCallback;
   private onPlayError?: PlayerErrorCallback;
+  private onPlayStateChange?: PlayStateCallback;
   private mounted = false;
   private currentVideoId: string | null = null;
   private volume = 100;
@@ -111,13 +120,19 @@ export class YouTubePlayerController {
     settings: CardSettings,
     onEnded?: () => void,
     onSeek?: SeekCallback,
-    onPlayError?: PlayerErrorCallback
+    onPlayError?: PlayerErrorCallback,
+    onPlayStateChange?: PlayStateCallback
   ) {
     this.container = container;
     this.settings = settings;
     this.onEnded = onEnded;
     this.onSeek = onSeek;
     this.onPlayError = onPlayError;
+    this.onPlayStateChange = onPlayStateChange;
+  }
+
+  private setPlayingState(playing: boolean): void {
+    this.onPlayStateChange?.(playing);
   }
 
   private startTick(): void {
@@ -157,9 +172,18 @@ export class YouTubePlayerController {
         playerVars: { ...buildPlayerVars(this.settings), autoplay: autoplay ? 1 : 0 },
         events: {
           onStateChange: (e) => {
-            if (e.data === ENDED) this.onEnded?.();
-            if (e.data === PLAYING) this.startTick();
-            if (e.data === PAUSED || e.data === ENDED) this.stopTick();
+            if (e.data === ENDED) {
+              this.setPlayingState(false);
+              this.onEnded?.();
+            }
+            if (e.data === PLAYING) {
+              this.startTick();
+              this.setPlayingState(true);
+            }
+            if (e.data === PAUSED) {
+              this.stopTick();
+              this.setPlayingState(false);
+            }
           },
           onError: (e) => {
             if (SKIPPABLE_ERROR_CODES.has(e.data)) this.onPlayError?.(e.data);
@@ -197,12 +221,14 @@ export class YouTubePlayerController {
   pause(): void {
     this.player?.pauseVideo();
     this.stopTick();
+    this.setPlayingState(false);
   }
 
   resume(): void {
     if (!this.player) return;
     this.player.playVideo();
     this.startTick();
+    this.setPlayingState(true);
   }
 
   seek(seconds: number): void {
@@ -210,9 +236,9 @@ export class YouTubePlayerController {
   }
 
   setVolume(vol: number): void {
-    this.volume = Math.max(0, Math.min(100, vol));
+    this.volume = Math.max(0, Math.min(VOLUME_SLIDER_MAX, vol));
     try {
-      this.player?.setVolume(this.volume);
+      this.player?.setVolume(volumeToYoutubeApi(this.volume));
     } catch {
       /* not ready */
     }

@@ -7,16 +7,27 @@ export function resetInnertubeSession(): void {
   innertubePromise = null;
 }
 
-/** Bound fetch avoids "Illegal invocation" when youtubei.js calls fetch in the browser. */
-const boundFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+/** window.fetch must be bound — bare calls throw "Illegal invocation" in browsers. */
+const safeFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+
+async function patchPlatformFetch(): Promise<void> {
+  const { Platform } = await import('youtubei.js');
+  try {
+    Platform.shim.fetch = safeFetch;
+  } catch {
+    /* Platform shim not ready yet — Innertube.create will load it */
+  }
+}
 
 async function getInnertube() {
-  const { Innertube } = await import('youtubei.js');
+  await patchPlatformFetch();
+  const { Innertube, Platform } = await import('youtubei.js');
+  Platform.shim.fetch = safeFetch;
   if (!innertubePromise) {
     innertubePromise = Innertube.create({
       generate_session_locally: true,
       retrieve_player: false,
-      fetch: boundFetch,
+      fetch: safeFetch,
     });
   }
   return innertubePromise;

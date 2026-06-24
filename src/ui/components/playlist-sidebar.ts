@@ -49,7 +49,7 @@ export function initPlaylistSidebar(el: HTMLElement): void {
   loadFullBtn = document.createElement('button');
   loadFullBtn.type = 'button';
   loadFullBtn.className = 'btn btn-primary playlist-sidebar-load-full';
-  loadFullBtn.textContent = t('loadFullPlaylist');
+  loadFullBtn.textContent = t('reloadPlaylists');
   bindHaptic(loadFullBtn);
   footerEl.appendChild(loadFullBtn);
 
@@ -127,7 +127,7 @@ function renderNowPlaying(videos: VideoEntry[], currentIndex: number): void {
 
 function renderFooter(cfg: PlaylistSidebarConfig): void {
   if (!footerEl || !loadFullBtn) return;
-  const show = Boolean(cfg.truncated && cfg.onLoadFull);
+  const show = Boolean(cfg.onLoadFull);
   footerEl.hidden = !show;
   loadFullBtn.onclick = show ? () => cfg.onLoadFull?.() : null;
 }

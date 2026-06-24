@@ -59,6 +59,7 @@ export const messages = {
   youtubeApiKeyHint: 'Enables full playlists (all videos). Without it, YouTube limits ~200 per playlist. Stored in your URL/bookmark.',
   playlistTruncated: 'Loaded {loaded} of ~{total} videos — add a YouTube API key in Settings for the full playlist.',
   loadFullPlaylist: 'Load full playlist',
+  reloadPlaylists: 'Reload playlists',
   playlistPanel: 'Playlist',
   videoSkipped: 'Skipped unavailable video',
   videoPrivate: 'Private',
