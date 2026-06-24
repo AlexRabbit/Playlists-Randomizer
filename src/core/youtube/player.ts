@@ -208,7 +208,7 @@ export class YouTubePlayerController {
     return this.iframeReady ?? Promise.resolve();
   }
 
-  private async ensureIframe(videoId: string): Promise<void> {
+  private async ensureIframe(videoId: string, startAt = 0): Promise<void> {
     await loadYouTubeApi();
     const YT = window.YT!;
     const h = this.settings.showVideo ? 360 : 1;
@@ -224,6 +224,7 @@ export class YouTubePlayerController {
             ...buildPlayerVars(this.settings),
             autoplay: 0,
             mute: 0,
+            ...(startAt > 0 ? { start: Math.floor(startAt) } : {}),
           },
           events: {
             onStateChange: (e) => {
@@ -247,6 +248,13 @@ export class YouTubePlayerController {
             },
             onReady: (e) => {
               this.applyIframeVolume(e.target);
+              if (startAt > 0.5) {
+                try {
+                  e.target.seekTo(startAt, true);
+                } catch {
+                  /* not ready */
+                }
+              }
               resolve();
             },
           },
@@ -260,7 +268,7 @@ export class YouTubePlayerController {
 
     await this.waitForIframeReady();
     if (this.currentVideoId !== videoId) {
-      this.player!.loadVideoById(videoId);
+      this.player!.loadVideoById(videoId, startAt > 0.5 ? startAt : undefined);
       this.currentVideoId = videoId;
     }
     this.applyIframeVolume(this.player!);
@@ -363,6 +371,117 @@ export class YouTubePlayerController {
     return this.volume;
   }
 
+  getCurrentTime(): number {
+    if (this.useBoost && this.boost) return this.boost.getCurrentTime();
+    try {
+      return this.player?.getCurrentTime() ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Show iframe at full size (overlay open) without reloading. */
+  showVideoSurface(): void {
+    this.applyIframeVisibility(true);
+    this.scheduleIframeResize();
+  }
+
+  /** Hide iframe visually (overlay closed) but keep playback running. */
+  hideVideoSurface(): void {
+    this.applyIframeVisibility(false);
+  }
+
+  private scheduleIframeResize(): void {
+    const resize = () => {
+      try {
+        this.player?.setSize(640, 360);
+      } catch {
+        /* not ready */
+      }
+    };
+    resize();
+    requestAnimationFrame(resize);
+  }
+
+  private applyIframeVisibility(visible: boolean): void {
+    const el = this.container.querySelector('iframe') as HTMLIFrameElement | null;
+    if (visible) {
+      this.container.style.width = '100%';
+      this.container.style.height = '100%';
+    }
+    if (!el) return;
+    // Never use display:none — YouTube iframe goes black / pauses when hidden that way.
+    if (visible) {
+      el.style.visibility = '';
+      el.style.position = '';
+      el.style.width = '100%';
+      el.style.height = '100%';
+      el.style.opacity = '1';
+      el.style.pointerEvents = '';
+      el.style.left = '';
+      el.style.top = '';
+    } else {
+      el.style.visibility = 'hidden';
+      el.style.position = 'absolute';
+      el.style.width = '1px';
+      el.style.height = '1px';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+      el.style.left = '-9999px';
+      el.style.top = '0';
+    }
+  }
+
+  private syncIframeVideoAt(pos: number): void {
+    if (!this.player) return;
+    try {
+      if (pos > 0.5) this.player.seekTo(pos, true);
+      this.player.playVideo();
+    } catch {
+      /* not ready */
+    }
+  }
+
+  /** Create or resize iframe for video overlay without restarting playback. */
+  async attachVideoSurface(): Promise<void> {
+    if (!this.currentVideoId) return;
+    const pos = this.getCurrentTime();
+
+    if (!this.mounted) {
+      const prevShow = this.settings.showVideo;
+      this.settings = { ...this.settings, showVideo: true };
+      await this.ensureIframe(this.currentVideoId, pos);
+      this.settings = { ...this.settings, showVideo: prevShow || true };
+    }
+
+    this.showVideoSurface();
+
+    if (!this.useBoost && pos > 0.5) this.seek(pos);
+  }
+
+  async resumeAfterSurfaceChange(): Promise<void> {
+    const pos = this.getCurrentTime();
+    if (this.useBoost && this.boost) {
+      if (!this.boost.isPlaying()) {
+        try {
+          await this.boost.play();
+        } catch {
+          /* gesture / transient */
+        }
+      }
+      this.syncIframeVideoAt(pos);
+    } else {
+      try {
+        if (pos > 0.5) this.player?.seekTo(pos, true);
+        this.player?.playVideo();
+      } catch {
+        /* not ready */
+      }
+    }
+    this.startTick();
+    this.setPlayingState(true);
+  }
+
   isPlaying(): boolean {
     if (this.useBoost && this.boost?.isPlaying()) return true;
     try {
@@ -398,27 +517,7 @@ export class YouTubePlayerController {
   }
 
   updateSettings(settings: CardSettings): void {
-    const wasShow = this.settings.showVideo;
     this.settings = settings;
-    const el = this.container.querySelector('iframe') as HTMLIFrameElement | null;
-    if (el) {
-      const show = settings.showVideo;
-      el.style.display = show ? '' : 'none';
-      el.style.position = show ? '' : 'absolute';
-      el.style.width = show ? '100%' : '1px';
-      el.style.height = show ? '100%' : '1px';
-      el.style.opacity = show ? '1' : '0';
-      el.style.pointerEvents = show ? '' : 'none';
-      if (show) {
-        try {
-          this.player?.setSize(640, 360);
-        } catch {
-          /* noop */
-        }
-      }
-    }
-    if (!wasShow && settings.showVideo && this.currentVideoId) {
-      void this.ensureIframe(this.currentVideoId);
-    }
+    if (!settings.showVideo) this.hideVideoSurface();
   }
 }

@@ -830,6 +830,11 @@ body.video-overlay-open {
   height: 100%;
 }
 
+.video-overlay-stage .player-host iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .video-overlay-panel .video-float-close {
   position: absolute;
   top: 0.35rem;

@@ -321,9 +321,11 @@ function renderPlayer(
   }
 
   function openVideoOverlay(): void {
+    const wasPlaying = ctrl.isPlaying();
+    const pos = ctrl.getCurrentTime();
+
     videoOverlay.hidden = false;
     if (!videoOverlay.isConnected) document.body.appendChild(videoOverlay);
-    document.body.classList.add('video-overlay-open');
 
     const stage = document.createElement('div');
     stage.className = 'video-overlay-stage';
@@ -331,14 +333,37 @@ function renderPlayer(
 
     videoPanel.replaceChildren();
     videoPanel.append(videoCloseBtn, stage, seek.el, timeRow, controls);
-    ctrl.updateSettings(card.settings);
+    document.body.classList.add('video-overlay-open');
+
+    void ctrl.attachVideoSurface().then(() => {
+      if (pos > 0.5) ctrl.seek(pos);
+      if (wasPlaying) {
+        void ctrl.resumeAfterSurfaceChange().then(() => setPlayIcon(true));
+      } else {
+        ctrl.pause();
+        setPlayIcon(false);
+      }
+    });
   }
 
   function teardownVideoOverlay(): void {
+    const wasPlaying = ctrl.isPlaying();
+    const pos = ctrl.getCurrentTime();
+
+    ctrl.hideVideoSurface();
+    dockPlayerInCard();
+
     videoOverlay.hidden = true;
     if (videoOverlay.isConnected) videoOverlay.remove();
     document.body.classList.remove('video-overlay-open');
-    dockPlayerInCard();
+
+    if (pos > 0.5) ctrl.seek(pos);
+    if (wasPlaying) {
+      void ctrl.resumeAfterSurfaceChange().then(() => setPlayIcon(true));
+    } else {
+      ctrl.pause();
+      setPlayIcon(false);
+    }
   }
 
   let videos: VideoEntry[] = [];
@@ -447,10 +472,7 @@ function renderPlayer(
 
   function syncVideoFloat(): void {
     if (card.settings.showVideo) openVideoOverlay();
-    else {
-      teardownVideoOverlay();
-      ctrl.updateSettings(card.settings);
-    }
+    else teardownVideoOverlay();
   }
 
   videoBackdrop.onclick = () => closeVideoOverlay();
