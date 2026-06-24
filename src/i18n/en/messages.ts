@@ -45,6 +45,7 @@ export const messages = {
   playPause: 'Play / Pause',
   random: 'Randomize order',
   showVideo: 'Show video',
+  closeVideo: 'Close video',
   queuePanel: 'Queue panel',
   pressPlayToLoad: 'Press play to load playlist',
   noAds: 'Minimize ads (experimental)',

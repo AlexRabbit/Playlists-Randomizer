@@ -1,6 +1,7 @@
 import type { CardSettings } from '../models/workspace';
 import { VolumeBoostAudio } from './volume-boost';
 import { VOLUME_SLIDER_MAX, sliderToYoutubeApi } from './volume';
+import { log } from '@/logs/logger';
 
 export { VOLUME_SLIDER_MAX } from './volume';
 
@@ -96,13 +97,12 @@ export type SeekCallback = (current: number, duration: number) => void;
 export type PlayerErrorCallback = (code: number) => void;
 export type PlayStateCallback = (playing: boolean) => void;
 
-/** YT iframe error codes that mean skip to next */
 export const SKIPPABLE_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
 
 export class YouTubePlayerController {
   private player: YTPlayer | null = null;
   private boost: VolumeBoostAudio | null = null;
-  private useBoost = true;
+  private useBoost = false;
   private container: HTMLElement;
   private settings: CardSettings;
   private onEnded?: () => void;
@@ -113,6 +113,7 @@ export class YouTubePlayerController {
   private mounted = false;
   private currentVideoId: string | null = null;
   private volume = 100;
+  private iframeReady: Promise<void> | null = null;
 
   constructor(
     container: HTMLElement,
@@ -130,6 +131,10 @@ export class YouTubePlayerController {
     this.onPlayStateChange = onPlayStateChange;
   }
 
+  private wantsBoost(): boolean {
+    return this.volume > 100;
+  }
+
   private setPlayingState(playing: boolean): void {
     this.onPlayStateChange?.(playing);
   }
@@ -138,11 +143,14 @@ export class YouTubePlayerController {
     if (!this.boost) {
       this.boost = new VolumeBoostAudio();
       this.boost.onEnded(() => {
+        if (!this.useBoost) return;
         this.setPlayingState(false);
         this.stopTick();
         this.onEnded?.();
       });
-      this.boost.onError(() => this.onPlayError?.(5));
+      this.boost.onError(() => {
+        if (this.useBoost) this.onPlayError?.(5);
+      });
       this.boost.onTimeUpdate(() => {
         if (!this.onSeek || !this.useBoost) return;
         const dur = this.boost!.getDuration();
@@ -178,43 +186,51 @@ export class YouTubePlayerController {
     this.tickTimer = null;
   }
 
-  private async loadBoostAudio(videoId: string): Promise<void> {
-    const boost = this.ensureBoost();
+  private async tryLoadBoost(videoId: string): Promise<boolean> {
+    if (!this.wantsBoost()) {
+      this.useBoost = false;
+      return false;
+    }
     try {
+      const boost = this.ensureBoost();
       await boost.load(videoId);
       this.useBoost = true;
       boost.setVolume(this.volume);
-      if (this.player) this.player.setVolume(0);
-    } catch {
+      return true;
+    } catch (e) {
+      log.warn('player', 'Volume boost unavailable, using iframe volume', { error: String(e) });
       this.useBoost = false;
-      try {
-        this.player?.setVolume(sliderToYoutubeApi(this.volume));
-      } catch {
-        /* not ready */
-      }
+      return false;
     }
   }
 
-  private async ensureIframe(videoId: string, autoplay: boolean): Promise<void> {
-    if (!this.settings.showVideo) return;
+  private waitForIframeReady(): Promise<void> {
+    return this.iframeReady ?? Promise.resolve();
+  }
+
+  private async ensureIframe(videoId: string): Promise<void> {
     await loadYouTubeApi();
     const YT = window.YT!;
+    const h = this.settings.showVideo ? 360 : 1;
+    const w = this.settings.showVideo ? 640 : 1;
 
     if (!this.mounted) {
-      this.player = new YT.Player(this.container, {
-        height: 360,
-        width: 640,
-        videoId,
-        playerVars: {
-          ...buildPlayerVars(this.settings),
-          autoplay: autoplay ? 1 : 0,
-          mute: this.useBoost ? 1 : 0,
-        },
-        events: {
-          onStateChange: (e) => {
-            if (!this.useBoost) {
+      this.iframeReady = new Promise((resolve) => {
+        this.player = new YT.Player(this.container, {
+          height: h,
+          width: w,
+          videoId,
+          playerVars: {
+            ...buildPlayerVars(this.settings),
+            autoplay: 0,
+            mute: 0,
+          },
+          events: {
+            onStateChange: (e) => {
+              if (this.useBoost) return;
               if (e.data === ENDED) {
                 this.setPlayingState(false);
+                this.stopTick();
                 this.onEnded?.();
               }
               if (e.data === PLAYING) {
@@ -225,52 +241,72 @@ export class YouTubePlayerController {
                 this.stopTick();
                 this.setPlayingState(false);
               }
-            }
+            },
+            onError: (e) => {
+              if (SKIPPABLE_ERROR_CODES.has(e.data)) this.onPlayError?.(e.data);
+            },
+            onReady: (e) => {
+              this.applyIframeVolume(e.target);
+              resolve();
+            },
           },
-          onError: (e) => {
-            if (SKIPPABLE_ERROR_CODES.has(e.data)) this.onPlayError?.(e.data);
-          },
-          onReady: (e) => {
-            if (this.useBoost) e.target.setVolume(0);
-            else e.target.setVolume(sliderToYoutubeApi(this.volume));
-          },
-        },
+        });
+        this.mounted = true;
+        this.currentVideoId = videoId;
       });
-      this.mounted = true;
-      this.currentVideoId = videoId;
+      await this.waitForIframeReady();
       return;
     }
 
+    await this.waitForIframeReady();
     if (this.currentVideoId !== videoId) {
       this.player!.loadVideoById(videoId);
       this.currentVideoId = videoId;
-      if (this.useBoost) this.player!.setVolume(0);
+    }
+    this.applyIframeVolume(this.player!);
+  }
+
+  private applyIframeVolume(target: YTPlayer): void {
+    try {
+      target.setVolume(this.useBoost ? 0 : sliderToYoutubeApi(this.volume));
+    } catch {
+      /* not ready */
     }
   }
 
-  async load(videoId: string, autoplay = true): Promise<void> {
-    if (this.settings.showVideo) {
-      await this.ensureIframe(videoId, false);
-    }
-
-    await this.loadBoostAudio(videoId);
-
-    if (autoplay) {
-      if (this.useBoost) {
-        await this.boost!.play();
-        this.startTick();
-        this.setPlayingState(true);
-        if (this.settings.showVideo && this.player) {
-          this.player.playVideo();
-        }
-      } else if (this.settings.showVideo && this.player) {
-        this.player.playVideo();
-        this.startTick();
-        this.setPlayingState(true);
+  private async startPlayback(): Promise<void> {
+    if (this.useBoost && this.boost) {
+      try {
+        await this.boost.play();
+      } catch (e) {
+        log.warn('player', 'Boost play failed, falling back to iframe', { error: String(e) });
+        this.useBoost = false;
+        if (this.player) this.applyIframeVolume(this.player);
       }
     }
 
+    if (this.player) {
+      if (!this.useBoost || this.settings.showVideo) {
+        this.player.playVideo();
+      }
+    }
+
+    this.startTick();
+    this.setPlayingState(true);
+  }
+
+  async load(videoId: string, autoplay = true): Promise<void> {
+    const boostOk = await this.tryLoadBoost(videoId);
+    const needsIframe = this.settings.showVideo || !boostOk;
+    if (needsIframe) {
+      await this.ensureIframe(videoId);
+    }
+
     this.currentVideoId = videoId;
+
+    if (autoplay) {
+      await this.startPlayback();
+    }
   }
 
   async init(videoId: string): Promise<void> {
@@ -289,18 +325,7 @@ export class YouTubePlayerController {
   }
 
   resume(): void {
-    if (this.useBoost && this.boost) {
-      void this.boost.play().then(() => {
-        this.startTick();
-        this.setPlayingState(true);
-        if (this.settings.showVideo) this.player?.playVideo();
-      });
-      return;
-    }
-    if (!this.player) return;
-    this.player.playVideo();
-    this.startTick();
-    this.setPlayingState(true);
+    void this.startPlayback();
   }
 
   seek(seconds: number): void {
@@ -308,21 +333,29 @@ export class YouTubePlayerController {
     this.player?.seekTo(seconds, true);
   }
 
-  setVolume(vol: number): void {
+  async setVolume(vol: number): Promise<void> {
+    const prev = this.volume;
     this.volume = Math.max(0, Math.min(VOLUME_SLIDER_MAX, vol));
+
+    const wasBoost = this.useBoost;
+    const wantBoost = this.wantsBoost();
+
+    if (wantBoost && !wasBoost && this.currentVideoId) {
+      await this.tryLoadBoost(this.currentVideoId);
+      if (this.useBoost && this.player) this.applyIframeVolume(this.player);
+    } else if (!wantBoost && wasBoost) {
+      this.useBoost = false;
+      if (this.player) this.applyIframeVolume(this.player);
+    }
+
     if (this.useBoost && this.boost) {
       this.boost.setVolume(this.volume);
-      try {
-        this.player?.setVolume(0);
-      } catch {
-        /* noop */
-      }
-    } else {
-      try {
-        this.player?.setVolume(sliderToYoutubeApi(this.volume));
-      } catch {
-        /* not ready */
-      }
+    } else if (this.player) {
+      this.applyIframeVolume(this.player);
+    }
+
+    if (prev !== this.volume && wantBoost !== wasBoost) {
+      /* volume mode switched */
     }
   }
 
@@ -331,7 +364,7 @@ export class YouTubePlayerController {
   }
 
   isPlaying(): boolean {
-    if (this.useBoost && this.boost) return this.boost.isPlaying();
+    if (this.useBoost && this.boost?.isPlaying()) return true;
     try {
       return this.player?.getPlayerState() === PLAYING;
     } catch {
@@ -340,23 +373,19 @@ export class YouTubePlayerController {
   }
 
   isPaused(): boolean {
-    if (this.useBoost && this.boost) return !this.boost.isPlaying();
-    try {
-      const s = this.player?.getPlayerState();
-      return s === PAUSED || s === 5;
-    } catch {
-      return false;
-    }
+    return !this.isPlaying();
   }
 
   hasPlayer(): boolean {
-    return this.mounted || Boolean(this.boost);
+    return this.mounted || this.useBoost;
   }
 
   destroy(): void {
     this.stopTick();
     this.boost?.destroy();
     this.boost = null;
+    this.useBoost = false;
+    this.iframeReady = null;
     try {
       this.player?.destroy();
     } catch {
@@ -380,9 +409,16 @@ export class YouTubePlayerController {
       el.style.height = show ? '100%' : '1px';
       el.style.opacity = show ? '1' : '0';
       el.style.pointerEvents = show ? '' : 'none';
+      if (show) {
+        try {
+          this.player?.setSize(640, 360);
+        } catch {
+          /* noop */
+        }
+      }
     }
     if (!wasShow && settings.showVideo && this.currentVideoId) {
-      void this.ensureIframe(this.currentVideoId, false);
+      void this.ensureIframe(this.currentVideoId);
     }
   }
 }

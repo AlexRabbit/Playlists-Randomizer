@@ -195,10 +195,23 @@ function renderPlayer(
   const playerWrap = document.createElement('div');
   playerWrap.className =
     'player-area' + (card.settings.showVideo ? ' video-float' : ' audio-only');
+
+  const videoBackdrop = document.createElement('div');
+  videoBackdrop.className = 'video-float-backdrop';
+  videoBackdrop.setAttribute('aria-hidden', 'true');
+
+  const videoInner = document.createElement('div');
+  videoInner.className = 'video-float-inner';
+
+  const videoCloseBtn = iconButton('close', t('closeVideo'));
+  videoCloseBtn.className = 'btn btn-icon btn-icon-svg video-float-close';
+
   const playerHost = document.createElement('div');
   playerHost.id = `yt-${card.id}`;
   playerHost.className = 'player-host';
-  playerWrap.appendChild(playerHost);
+
+  videoInner.append(videoCloseBtn, playerHost);
+  playerWrap.append(videoBackdrop, videoInner);
 
   const thumbGrid = document.createElement('div');
   thumbGrid.className = 'thumb-grid-wrap';
@@ -389,12 +402,30 @@ function renderPlayer(
     };
   }
 
+  function closeVideoOverlay(): void {
+    if (!card.settings.showVideo) return;
+    updateCard(listId, card.id, { settings: { ...card.settings, showVideo: false } });
+    card.settings.showVideo = false;
+    videoBtn.classList.remove('active');
+    setIcon(videoBtn, 'videoOff');
+    syncVideoFloat();
+  }
+
   function syncVideoFloat(): void {
     const show = card.settings.showVideo;
     playerWrap.classList.toggle('audio-only', !show);
     playerWrap.classList.toggle('video-float', show);
+    videoBackdrop.hidden = !show;
+    videoCloseBtn.hidden = !show;
     ctrl.updateSettings(card.settings);
   }
+
+  videoBackdrop.onclick = () => closeVideoOverlay();
+  videoCloseBtn.onclick = (e) => {
+    e.stopPropagation();
+    closeVideoOverlay();
+  };
+  videoInner.onclick = (e) => e.stopPropagation();
 
   function syncQueuePanel(): void {
     queueBtn.classList.toggle('active', queuePanelOpen);
@@ -463,8 +494,14 @@ function renderPlayer(
       }
       if (!ctrl.hasPlayer()) {
         onCardPlaybackStart();
-        await ctrl.load(videos[index].videoId, true);
-        setPlayIcon(true);
+        try {
+          await ctrl.load(videos[index].videoId, true);
+          setPlayIcon(true);
+        } catch (e) {
+          log.error('player', 'Play failed', { error: String(e) });
+          showToast(t('fetchErrorHint'));
+          setPlayIcon(false);
+        }
       } else if (ctrl.isPlaying()) {
         ctrl.pause();
         setPlayIcon(false);
@@ -583,6 +620,7 @@ function renderPlayer(
     }
   }
 
+  bindHaptic(videoCloseBtn);
   [prev, play, next, videoBtn, queueBtn, autoBtn, searchBtn].forEach(bindHaptic);
   syncVideoFloat();
 }
