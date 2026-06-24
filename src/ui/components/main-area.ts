@@ -1,8 +1,10 @@
 import type { PlaylistList, Workspace } from '@/core/models/workspace';
+import { defaultCardSettings } from '@/core/models/workspace';
 import { addCard, reorderCards } from '@/app/store';
 import { mountCard } from './card-player';
+import { startGlobalSession } from './global-player';
 import { openSearchPanel } from './search-panel';
-import { fetchAllPlaylistVideos } from '@/core/youtube/playlist';
+import { fetchAllPlaylistVideos, orderVideos } from '@/core/youtube/playlist';
 import { notifyPlaylistTruncation } from '@/core/youtube/truncation';
 import { t } from '@/i18n';
 import { setupDragReorder } from './drag-reorder';
@@ -30,12 +32,18 @@ export function renderMain(
     searchBtn.textContent = '🔍 ' + t('search');
     searchBtn.onclick = async () => {
       const ids = list.cards.flatMap((c) => c.playlistIds);
-      const { videos, truncated } = await fetchAllPlaylistVideos(ids, workspace.youtubeApiKey);
+      const { videos: raw, truncated } = await fetchAllPlaylistVideos(ids, workspace.youtubeApiKey);
       notifyPlaylistTruncation(truncated);
+      const videos = orderVideos(raw, false, Date.now());
       openSearchPanel(videos, (v) => {
-        document.dispatchEvent(
-          new CustomEvent('prr:search-pick', { detail: { videoId: v.videoId } })
-        );
+        const idx = videos.findIndex((x) => x.videoId === v.videoId);
+        startGlobalSession({
+          listId: list.id,
+          listName: list.name,
+          videos,
+          index: idx >= 0 ? idx : 0,
+          settings: { ...defaultCardSettings(), random: false },
+        });
       });
     };
 

@@ -1,5 +1,5 @@
-/** UI volume slider range — 150 = 150% loudness via Web Audio gain. */
-export const VOLUME_SLIDER_MAX = 150;
+/** UI volume slider range — 135 = 135% loudness via Web Audio gain. */
+export const VOLUME_SLIDER_MAX = 135;
 
 export function sliderToGain(sliderValue: number): number {
   const v = Math.max(0, Math.min(VOLUME_SLIDER_MAX, sliderValue));

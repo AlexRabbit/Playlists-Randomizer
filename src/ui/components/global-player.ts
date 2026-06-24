@@ -136,8 +136,29 @@ function sidebarConfig(): PlaylistSidebarConfig | null {
     videos: session.videos,
     currentIndex: session.index,
     onPick: (i) => void playAt(i, true),
+    onReorder: reorderGlobalQueue,
     truncated: false,
   };
+}
+
+function adjustIndexAfterReorder(cur: number, from: number, to: number): number {
+  if (cur === from) return to;
+  if (from < cur && to >= cur) return cur - 1;
+  if (from > cur && to <= cur) return cur + 1;
+  return cur;
+}
+
+function reorderGlobalQueue(from: number, to: number): void {
+  if (!session || from === to || from < 0 || to < 0 || from >= session.videos.length || to >= session.videos.length) {
+    return;
+  }
+  const next = [...session.videos];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  session.videos = next;
+  session.index = adjustIndexAfterReorder(session.index, from, to);
+  updateMeta();
+  refreshPlaylistSidebar();
 }
 
 function syncQueuePanel(): void {
@@ -288,7 +309,10 @@ function renderShell(): void {
   const searchBtn = iconButton('search', t('search'));
   searchBtn.onclick = () => {
     if (!session?.videos.length) return;
-    openSearchPanel(session.videos, (_, idx) => void playAt(idx, true));
+    openSearchPanel(session.videos, (v) => {
+      const idx = session!.videos.findIndex((x) => x.videoId === v.videoId);
+      void playAt(idx >= 0 ? idx : 0, true);
+    });
   };
 
   const prev = mkBtn('prev', t('previous'), () => globalPrev());

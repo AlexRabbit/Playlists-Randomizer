@@ -118,10 +118,6 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
   const footer = document.createElement('div');
   footer.className = 'sidebar-footer';
 
-  const bookmarkHint = document.createElement('p');
-  bookmarkHint.className = 'bookmark-hint';
-  bookmarkHint.textContent = ws.lists.length ? t('bookmarkHint') : t('bookmarkHintEmpty');
-
   const dragLink = createBookmarkDragLink(ws);
   registerBookmarkLink(dragLink);
 
@@ -150,6 +146,6 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
   };
   importLabel.appendChild(importInput);
 
-  footer.append(bookmarkHint, dragLink, bookmarkBtn, exportBtn, importLabel);
+  footer.append(dragLink, bookmarkBtn, exportBtn, importLabel);
   el.appendChild(footer);
 }

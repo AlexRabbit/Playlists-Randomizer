@@ -1,14 +1,12 @@
 import type { YouTubePlayerController } from '@/core/youtube/player';
 import {
-  castToChromecast,
-  isAirPlaySupported,
-  isChromecastSupported,
-  promptAirPlay,
-} from '@/core/playback/remote-playback';
+  createCastButtonGroup,
+  injectCastIntoToggleRow,
+  removeCastFromControls,
+} from './cast-controls';
 import { iconButton } from '@/ui/icons';
 import { t } from '@/i18n';
 import { bindHaptic } from '@/ui/haptics';
-import { showToast } from '@/app/toast';
 
 export interface VideoOverlayDock {
   seek: HTMLElement;
@@ -65,39 +63,9 @@ export function createVideoOverlay(options: {
   videoCloseBtn.className = 'btn btn-icon btn-icon-svg video-float-close';
   bindHaptic(videoCloseBtn);
 
-  const castRow = document.createElement('div');
-  castRow.className = 'video-overlay-cast';
-
-  const airplayBtn = iconButton('airplay', t('airplay'));
-  airplayBtn.className = 'btn btn-icon btn-icon-svg video-cast-btn';
-  airplayBtn.hidden = !isAirPlaySupported();
-  airplayBtn.onclick = (e) => {
-    e.stopPropagation();
-    const ctrl = options.controller();
-    const media = ctrl.getCastAudioElement();
-    if (media && promptAirPlay(media)) return;
-    showToast(t('castUnavailable'));
-  };
-
-  const chromecastBtn = iconButton('chromecast', t('chromecast'));
-  chromecastBtn.className = 'btn btn-icon btn-icon-svg video-cast-btn';
-  chromecastBtn.hidden = true;
-  chromecastBtn.onclick = (e) => {
-    e.stopPropagation();
-    const ctrl = options.controller();
-    const videoId = ctrl.getCurrentVideoId();
-    if (!videoId) {
-      showToast(t('castNoVideo'));
-      return;
-    }
-    void castToChromecast(videoId, options.getCastTitle?.());
-  };
-  bindHaptic(airplayBtn);
-  bindHaptic(chromecastBtn);
-  castRow.append(airplayBtn, chromecastBtn);
-
-  void isChromecastSupported().then((ok) => {
-    chromecastBtn.hidden = !ok;
+  const castRow = createCastButtonGroup({
+    controller: options.controller,
+    getCastTitle: options.getCastTitle,
   });
 
   videoOverlay.append(videoBackdrop, videoPanel);
@@ -106,7 +74,7 @@ export function createVideoOverlay(options: {
   let stageEl: HTMLElement | null = null;
   let positionListener: (() => void) | null = null;
   let stageObserver: ResizeObserver | null = null;
-  let escListener: ((e: KeyboardEvent) => void) | null = null;
+  let keyListener: ((e: KeyboardEvent) => void) | null = null;
 
   function positionPlayerOverStage(): void {
     if (!stageEl || !overlayOpen) return;
@@ -129,20 +97,34 @@ export function createVideoOverlay(options: {
     });
   }
 
-  function bindEsc(): void {
-    if (escListener) return;
-    escListener = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || !overlayOpen) return;
-      e.preventDefault();
-      options.onUserClose();
-    };
-    document.addEventListener('keydown', escListener);
+  function isTypingTarget(el: EventTarget | null): boolean {
+    const node = el as HTMLElement | null;
+    if (!node) return false;
+    const tag = node.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || node.isContentEditable;
   }
 
-  function unbindEsc(): void {
-    if (!escListener) return;
-    document.removeEventListener('keydown', escListener);
-    escListener = null;
+  function bindOverlayKeys(): void {
+    if (keyListener) return;
+    keyListener = (e: KeyboardEvent) => {
+      if (!overlayOpen || isTypingTarget(e.target)) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        options.onUserClose();
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleStageFullscreen();
+      }
+    };
+    document.addEventListener('keydown', keyListener);
+  }
+
+  function unbindOverlayKeys(): void {
+    if (!keyListener) return;
+    document.removeEventListener('keydown', keyListener);
+    keyListener = null;
   }
 
   function open(): void {
@@ -169,7 +151,8 @@ export function createVideoOverlay(options: {
     });
 
     videoPanel.replaceChildren();
-    videoPanel.append(videoCloseBtn, castRow, stageEl, dock.seek, dock.timeRow, dock.controls);
+    videoPanel.append(videoCloseBtn, stageEl, dock.seek, dock.timeRow, dock.controls);
+    injectCastIntoToggleRow(dock.controls, castRow);
     document.body.classList.add('video-overlay-open');
 
     playerMount.classList.remove('player-mount-hidden');
@@ -186,7 +169,7 @@ export function createVideoOverlay(options: {
       toggleStageFullscreen();
     });
 
-    bindEsc();
+    bindOverlayKeys();
 
     requestAnimationFrame(() => {
       positionPlayerOverStage();
@@ -212,7 +195,9 @@ export function createVideoOverlay(options: {
     }
     stageObserver?.disconnect();
     stageObserver = null;
-    unbindEsc();
+    unbindOverlayKeys();
+
+    removeCastFromControls(castRow);
 
     if (document.fullscreenElement === playerMount) {
       void document.exitFullscreen();
@@ -253,7 +238,7 @@ export function createVideoOverlay(options: {
     isOpen: () => overlayOpen,
     destroy() {
       close();
-      unbindEsc();
+      unbindOverlayKeys();
       playerMount.remove();
       if (videoOverlay.isConnected) videoOverlay.remove();
       document.body.classList.remove('video-overlay-open');

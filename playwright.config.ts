@@ -11,8 +11,18 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:5173',
     trace: 'on-first-retry',
-    ...devices['Desktop Chrome'],
   },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+      testMatch: /cast\.spec\.ts/,
+    },
+  ],
   webServer: {
     command: 'npm run dev:e2e',
     url: 'http://127.0.0.1:5173',

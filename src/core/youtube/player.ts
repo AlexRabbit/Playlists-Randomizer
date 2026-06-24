@@ -352,16 +352,34 @@ export class YouTubePlayerController {
     this.player?.seekTo(seconds, true);
   }
 
+  private async syncBoostPlayback(pos: number, shouldPlay: boolean): Promise<void> {
+    if (!this.useBoost || !this.boost) return;
+    if (pos > 0.5) this.boost.seek(pos);
+    if (shouldPlay) {
+      try {
+        await this.boost.play();
+      } catch (e) {
+        log.warn('player', 'Boost play failed after volume change', { error: String(e) });
+      }
+    }
+    if (this.player) {
+      this.applyIframeVolume(this.player);
+      if (this.settings.showVideo && shouldPlay) this.syncIframeVideoAt(pos);
+    }
+  }
+
   async setVolume(vol: number): Promise<void> {
     const prev = this.volume;
     this.volume = Math.max(0, Math.min(VOLUME_SLIDER_MAX, vol));
 
     const wasBoost = this.useBoost;
     const wantBoost = this.wantsBoost();
+    const wasPlaying = this.userWantsPlay;
+    const pos = this.getCurrentTime();
 
     if (wantBoost && !wasBoost && this.currentVideoId) {
       await this.tryLoadBoost(this.currentVideoId);
-      if (this.useBoost && this.player) this.applyIframeVolume(this.player);
+      if (this.useBoost) await this.syncBoostPlayback(pos, wasPlaying);
     } else if (!wantBoost && wasBoost) {
       this.useBoost = false;
       if (this.player) this.applyIframeVolume(this.player);
@@ -405,6 +423,10 @@ export class YouTubePlayerController {
 
   getCastAudioElement(): HTMLMediaElement | null {
     return this.boost?.getAudioElement() ?? null;
+  }
+
+  getCastIframeElement(): HTMLIFrameElement | null {
+    return this.container.querySelector('iframe');
   }
 
   restorePlayback(pos: number, shouldPlay: boolean): void {

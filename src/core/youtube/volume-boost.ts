@@ -1,7 +1,7 @@
 import { getInnertube } from './innertube-session';
 import { VOLUME_SLIDER_MAX, sliderToGain } from './volume';
 
-/** Real 0–150% loudness via Web Audio gain (YouTube iframe API caps at 100). */
+/** Real 0–135% loudness via Web Audio gain (YouTube iframe API caps at 100). */
 export class VolumeBoostAudio {
   private readonly audio = document.createElement('audio');
   private ctx: AudioContext | null = null;

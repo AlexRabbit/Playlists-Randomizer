@@ -546,7 +546,10 @@ function renderPlayer(
       showToast(t('pressPlayToLoad'));
       return;
     }
-    openSearchPanel(videos, (_, idx) => go(idx, true));
+    openSearchPanel(videos, (v) => {
+      const idx = videos.findIndex((x) => x.videoId === v.videoId);
+      if (idx >= 0) go(idx, true);
+    });
   };
 
   const onToggle = () => {
@@ -556,8 +559,17 @@ function renderPlayer(
   const onNext = () => focused() && go(1);
   const onSearch = (e: Event) => {
     const vid = (e as CustomEvent).detail?.videoId;
-    const i = videos.findIndex((x) => x.videoId === vid);
-    if (i >= 0 && focused()) go(i, true);
+    if (!vid) return;
+    void (async () => {
+      if (!videos.length) {
+        const ok = await ensureVideosLoaded();
+        if (!ok) return;
+      }
+      const i = videos.findIndex((x) => x.videoId === vid);
+      if (i < 0) return;
+      setFocusedCard(card.id);
+      go(i, true);
+    })();
   };
 
   document.addEventListener('prr:card-play-toggle', onToggle);

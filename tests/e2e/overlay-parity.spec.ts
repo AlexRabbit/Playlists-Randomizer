@@ -81,8 +81,9 @@ test.describe('video overlay parity — card vs global player', () => {
     expect(called).toBe(true);
   });
 
-  test('overlay exposes cast controls row', async ({ page }) => {
+  test('overlay exposes cast controls in toggle row', async ({ page }) => {
     await openCardOverlay(page);
-    await expect(page.locator('.video-overlay-cast')).toBeVisible();
+    const toggles = page.locator('.video-overlay .controls-row-toggles').first();
+    await expect(toggles.locator('.video-overlay-cast')).toBeVisible();
   });
 });
