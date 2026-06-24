@@ -1,5 +1,6 @@
 import type { Workspace } from '../models/workspace';
 import { WORKSPACE_VERSION } from '../models/workspace';
+import { normalizeWorkspace } from '@/core/models/normalize';
 import { log } from '@/logs/logger';
 
 export const BACKUP_MAGIC = 'PRR_BACKUP';
@@ -34,11 +35,12 @@ export function parseBackup(json: string): Workspace | null {
     }
     if (!data.workspace?.lists) return null;
     log.info('import', 'Backup parsed', { version: data.version, lists: data.workspace.lists.length });
-    return {
+    return normalizeWorkspace({
       version: data.workspace.version ?? WORKSPACE_VERSION,
       lists: data.workspace.lists,
       activeListId: data.workspace.activeListId ?? null,
-    };
+      youtubeApiKey: data.workspace.youtubeApiKey,
+    });
   } catch (e) {
     log.error('import', 'Backup parse failed', { error: String(e) });
     return null;

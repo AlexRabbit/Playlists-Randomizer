@@ -416,6 +416,7 @@ body {
   padding: 0.5rem 0.25rem;
 }
 
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -425,3 +426,287 @@ body {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* SF Pro — paths injected in main.ts for GitHub Pages base URL */
+
+body.has-global-player .main {
+  padding-bottom: 11rem;
+}
+
+body.has-global-player .log-panel {
+  bottom: 5.5rem;
+}
+
+#global-player-root {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  pointer-events: none;
+  transform: translateY(100%);
+  transition: transform 0.35s var(--ease);
+}
+
+#global-player-root.visible {
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.global-player {
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.global-player-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.global-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.global-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.global-player-host {
+  aspect-ratio: 16 / 9;
+  max-height: 120px;
+  background: #000;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.global-player-controls {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.seek-bar {
+  padding: 0.25rem 0;
+}
+
+.seek-track {
+  position: relative;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.seek-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--accent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  left: 0;
+}
+
+.seek-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.thumb-cell {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+}
+
+.thumb-cell.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.thumb-cell img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+
+.thumb-cell span {
+  display: block;
+  font-size: 0.65rem;
+  padding: 0.35rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drag-handle {
+  cursor: grab;
+  opacity: 0.45;
+  user-select: none;
+  padding: 0 0.25rem;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.draggable-row.dragging {
+  opacity: 0.45;
+}
+
+.draggable-row.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.list-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.list-row .list-item {
+  flex: 1;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  width: min(520px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.modal-hint,
+.modal-count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.search-results {
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+}
+
+.search-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.search-row img {
+  width: 80px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.bookmark-drag {
+  text-decoration: none;
+  text-align: center;
+  cursor: grab;
+}
+
+.bookmark-drag:active {
+  cursor: grabbing;
+}
+
+.settings-panel {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.settings-panel summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.add-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.card-header-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+

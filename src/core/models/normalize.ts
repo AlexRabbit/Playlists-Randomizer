@@ -7,6 +7,7 @@ function normalizeSettings(raw?: Partial<CardSettings>): CardSettings {
     random: raw?.random ?? defaults.random,
     showVideo: raw?.showVideo ?? defaults.showVideo,
     noAds: raw?.noAds ?? defaults.noAds,
+    autoplayNext: raw?.autoplayNext ?? defaults.autoplayNext,
   };
 }
 
@@ -41,5 +42,6 @@ export function normalizeWorkspace(raw: Workspace): Workspace {
     version: raw.version ?? WORKSPACE_VERSION,
     lists,
     activeListId,
+    youtubeApiKey: raw.youtubeApiKey,
   };
 }

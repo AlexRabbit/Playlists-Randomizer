@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_DEFAULT_RANDOM: string;
   readonly VITE_DEFAULT_SHOW_VIDEO: string;
   readonly VITE_DEFAULT_NO_ADS: string;
+  readonly VITE_DEFAULT_AUTOPLAY_NEXT: string;
+  readonly VITE_YOUTUBE_API_KEY: string;
   readonly VITE_YOUTUBE_PLAYER_VARS: string;
   readonly VITE_LOG_LEVEL: string;
   readonly VITE_LOG_MAX_ENTRIES: string;

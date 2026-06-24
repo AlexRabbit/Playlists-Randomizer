@@ -6,6 +6,9 @@ export interface YTPlayer {
   stopVideo(): void;
   loadVideoById(videoId: string, startSeconds?: number): void;
   getPlayerState(): number;
+  getCurrentTime(): number;
+  getDuration(): number;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
   destroy(): void;
   setSize(width: number, height: number): void;
 }
@@ -68,9 +71,7 @@ export function buildPlayerVars(settings: CardSettings): Record<string, string |
     playsinline: 1,
     iv_load_policy: 3,
   };
-  if (settings.noAds) {
-    vars.fs = 0;
-  }
+  if (settings.noAds) vars.fs = 0;
   const extra = import.meta.env.VITE_YOUTUBE_PLAYER_VARS;
   if (extra) {
     for (const part of extra.split('&')) {
@@ -82,17 +83,47 @@ export function buildPlayerVars(settings: CardSettings): Record<string, string |
 }
 
 const ENDED = 0;
+const PLAYING = 1;
+
+export type SeekCallback = (current: number, duration: number) => void;
 
 export class YouTubePlayerController {
   private player: YTPlayer | null = null;
   private container: HTMLElement;
   private settings: CardSettings;
   private onEnded?: () => void;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private onSeek?: SeekCallback;
 
-  constructor(container: HTMLElement, settings: CardSettings, onEnded?: () => void) {
+  constructor(
+    container: HTMLElement,
+    settings: CardSettings,
+    onEnded?: () => void,
+    onSeek?: SeekCallback
+  ) {
     this.container = container;
     this.settings = settings;
     this.onEnded = onEnded;
+    this.onSeek = onSeek;
+  }
+
+  private startTick(): void {
+    this.stopTick();
+    this.tickTimer = setInterval(() => {
+      if (!this.player || !this.onSeek) return;
+      try {
+        const cur = this.player.getCurrentTime();
+        const dur = this.player.getDuration();
+        if (dur > 0) this.onSeek(cur, dur);
+      } catch {
+        /* player not ready */
+      }
+    }, 500);
+  }
+
+  private stopTick(): void {
+    if (this.tickTimer) clearInterval(this.tickTimer);
+    this.tickTimer = null;
   }
 
   async init(videoId: string): Promise<void> {
@@ -109,7 +140,10 @@ export class YouTubePlayerController {
       events: {
         onStateChange: (e) => {
           if (e.data === ENDED) this.onEnded?.();
+          if (e.data === PLAYING) this.startTick();
+          if (e.data === ENDED || e.data === 2) this.stopTick();
         },
+        onReady: () => this.startTick(),
       },
     });
   }
@@ -117,13 +151,33 @@ export class YouTubePlayerController {
   play(videoId: string): void {
     if (!this.player) return;
     this.player.loadVideoById(videoId);
+    this.startTick();
   }
 
   pause(): void {
     this.player?.pauseVideo();
+    this.stopTick();
+  }
+
+  resume(): void {
+    this.player?.playVideo();
+    this.startTick();
+  }
+
+  seek(seconds: number): void {
+    this.player?.seekTo(seconds, true);
+  }
+
+  isPlaying(): boolean {
+    try {
+      return this.player?.getPlayerState() === PLAYING;
+    } catch {
+      return false;
+    }
   }
 
   destroy(): void {
+    this.stopTick();
     try {
       this.player?.destroy();
     } catch {
@@ -137,12 +191,13 @@ export class YouTubePlayerController {
     this.settings = settings;
     const el = this.container.querySelector('iframe') as HTMLIFrameElement | null;
     if (el) {
-      el.style.display = settings.showVideo ? '' : 'none';
-      el.style.position = settings.showVideo ? '' : 'absolute';
-      el.style.width = settings.showVideo ? '100%' : '1px';
-      el.style.height = settings.showVideo ? '100%' : '1px';
-      el.style.opacity = settings.showVideo ? '1' : '0';
-      el.style.pointerEvents = settings.showVideo ? '' : 'none';
+      const show = settings.showVideo;
+      el.style.display = show ? '' : 'none';
+      el.style.position = show ? '' : 'absolute';
+      el.style.width = show ? '100%' : '1px';
+      el.style.height = show ? '100%' : '1px';
+      el.style.opacity = show ? '1' : '0';
+      el.style.pointerEvents = show ? '' : 'none';
     }
   }
 }

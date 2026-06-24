@@ -1,103 +1,144 @@
 import type { Workspace } from '@/core/models/workspace';
-import { addList, setActiveList, deleteList, renameList, copyBookmark, exportData, importData } from '@/app/store';
+import {
+  addList,
+  setActiveList,
+  deleteList,
+  renameList,
+  copyBookmark,
+  exportData,
+  importData,
+  reorderLists,
+  playAllInList,
+  setYoutubeApiKey,
+  registerBookmarkLink,
+} from '@/app/store';
+import { setupDragReorder } from './drag-reorder';
+import { createBookmarkDragLink } from './bookmark-drag';
+import { t } from '@/i18n';
+import { bindHaptic } from '@/ui/haptics';
 
 export function renderSidebar(el: HTMLElement, ws: Workspace): void {
   el.innerHTML = '';
 
   const title = document.createElement('h2');
   title.className = 'sidebar-title';
-  title.textContent = 'Lists';
+  title.textContent = t('lists');
   el.appendChild(title);
 
   const addRow = document.createElement('div');
-  addRow.style.display = 'flex';
-  addRow.style.gap = '0.5rem';
+  addRow.className = 'add-row';
   const input = document.createElement('input');
   input.className = 'inline-input';
-  input.placeholder = 'New list name…';
-  input.setAttribute('aria-label', 'New list name');
+  input.placeholder = t('newListPlaceholder');
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-primary';
   addBtn.textContent = '+';
-  addBtn.title = 'Add list';
+  addBtn.title = t('addList');
   addBtn.onclick = () => {
-    const name = input.value.trim() || 'Untitled';
-    addList(name);
+    addList(input.value.trim() || 'Untitled');
     input.value = '';
   };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addBtn.click();
   });
+  bindHaptic(addBtn);
   addRow.append(input, addBtn);
   el.appendChild(addRow);
 
   const nav = document.createElement('nav');
   nav.className = 'list-nav';
-  nav.setAttribute('aria-label', 'Playlist lists');
+  setupDragReorder(nav, ws.lists, reorderLists, (list, _i, handle) => {
+    const row = document.createElement('div');
+    row.className = 'list-row';
 
-  for (const list of ws.lists) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'list-item' + (ws.activeListId === list.id ? ' active' : '');
     const label = document.createElement('span');
     label.textContent = list.name;
-    btn.appendChild(label);
+    btn.append(handle, label);
+
+    btn.onclick = () => setActiveList(list.id);
+    btn.oncontextmenu = (e) => {
+      e.preventDefault();
+      playAllInList(list.id);
+    };
+    btn.ondblclick = () => {
+      const n = prompt(t('renameList'), list.name);
+      if (n) renameList(list.id, n);
+    };
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'btn btn-icon';
+    playBtn.textContent = '▶';
+    playBtn.title = t('playAll');
+    playBtn.onclick = (e) => {
+      e.stopPropagation();
+      playAllInList(list.id);
+    };
 
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'btn btn-icon btn-danger';
-    del.innerHTML = '×';
-    del.title = 'Delete list';
+    del.textContent = '×';
+    del.title = t('deleteList');
     del.onclick = (e) => {
       e.stopPropagation();
-      if (confirm(`Delete list "${list.name}"?`)) deleteList(list.id);
+      if (confirm(t('confirmDeleteList', { name: list.name }))) deleteList(list.id);
     };
 
-    btn.onclick = () => setActiveList(list.id);
-    btn.ondblclick = () => {
-      const n = prompt('Rename list', list.name);
-      if (n) renameList(list.id, n);
-    };
-
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '0.35rem';
-    row.style.alignItems = 'center';
-    row.append(btn, del);
-    nav.appendChild(row);
-  }
-
+    row.append(btn, playBtn, del);
+    return row;
+  });
   el.appendChild(nav);
 
+  const settings = document.createElement('details');
+  settings.className = 'settings-panel';
+  const sum = document.createElement('summary');
+  sum.textContent = t('settings');
+  const apiLabel = document.createElement('label');
+  apiLabel.textContent = t('youtubeApiKey');
+  const apiHint = document.createElement('p');
+  apiHint.className = 'modal-hint';
+  apiHint.textContent = t('youtubeApiKeyHint');
+  const apiInput = document.createElement('input');
+  apiInput.className = 'inline-input';
+  apiInput.type = 'password';
+  apiInput.value = ws.youtubeApiKey ?? '';
+  apiInput.placeholder = 'AIza…';
+  const apiSave = document.createElement('button');
+  apiSave.className = 'btn btn-primary';
+  apiSave.textContent = t('apiKeySave');
+  apiSave.onclick = () => setYoutubeApiKey(apiInput.value);
+  apiLabel.append(apiInput);
+  settings.append(sum, apiHint, apiLabel, apiSave);
+  el.appendChild(settings);
+
   const footer = document.createElement('div');
-  footer.style.marginTop = 'auto';
-  footer.style.display = 'flex';
-  footer.style.flexDirection = 'column';
-  footer.style.gap = '0.5rem';
-  footer.style.paddingTop = '1rem';
-  footer.style.borderTop = '1px solid var(--glass-border)';
+  footer.className = 'sidebar-footer';
 
   const bookmarkHint = document.createElement('p');
   bookmarkHint.className = 'bookmark-hint';
-  bookmarkHint.textContent = ws.lists.length
-    ? '★ Your lists, cards, playlists & settings live in this page URL — bookmark it to restore everything.'
-    : '★ Build your workspace, then bookmark this page — the URL saves everything.';
-  footer.appendChild(bookmarkHint);
+  bookmarkHint.textContent = ws.lists.length ? t('bookmarkHint') : t('bookmarkHintEmpty');
+
+  const dragLink = createBookmarkDragLink(ws);
+  registerBookmarkLink(dragLink);
 
   const bookmarkBtn = document.createElement('button');
   bookmarkBtn.className = 'btn';
-  bookmarkBtn.textContent = '🔗 Copy bookmark';
+  bookmarkBtn.textContent = t('copyBookmark');
   bookmarkBtn.onclick = () => copyBookmark();
 
   const exportBtn = document.createElement('button');
   exportBtn.className = 'btn';
-  exportBtn.textContent = '⬇ Export backup';
+  exportBtn.textContent = t('exportBackup');
   exportBtn.onclick = () => exportData();
 
   const importLabel = document.createElement('label');
   importLabel.className = 'btn';
   importLabel.style.cursor = 'pointer';
-  importLabel.textContent = '⬆ Import backup';
+  importLabel.textContent = t('importBackup');
   const importInput = document.createElement('input');
   importInput.type = 'file';
   importInput.accept = '.json,application/json';
@@ -109,6 +150,6 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
   };
   importLabel.appendChild(importInput);
 
-  footer.append(bookmarkBtn, exportBtn, importLabel);
+  footer.append(bookmarkHint, dragLink, bookmarkBtn, exportBtn, importLabel);
   el.appendChild(footer);
 }

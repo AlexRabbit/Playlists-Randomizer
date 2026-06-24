@@ -1,19 +1,18 @@
 import type { VideoEntry } from '../models/workspace';
 import { log } from '@/logs/logger';
+import { getCachedPlaylist, setCachedPlaylist } from '../cache/playlist-cache';
+import { fetchPlaylistVideosApi, getApiKey } from './api';
 
 const RSS_URL = 'https://www.youtube.com/feeds/videos.xml?playlist_id=';
 
-/** Extract playlist ID from URL or raw ID */
 export function parsePlaylistId(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-
   const patterns = [
     /[?&]list=([A-Za-z0-9_-]+)/,
     /^([A-Za-z0-9_-]{10,})$/,
     /playlist\/([A-Za-z0-9_-]+)/,
   ];
-
   for (const re of patterns) {
     const m = trimmed.match(re);
     if (m?.[1]) return m[1];
@@ -45,23 +44,48 @@ function parseRssEntries(xml: string, playlistId: string): VideoEntry[] {
   return videos;
 }
 
-export async function fetchPlaylistVideos(playlistId: string): Promise<VideoEntry[]> {
+async function fetchPlaylistVideosRss(playlistId: string): Promise<VideoEntry[]> {
   const url = RSS_URL + encodeURIComponent(playlistId);
   log.info('youtube', 'Fetching playlist RSS', { playlistId });
   const res = await fetch(url, { mode: 'cors' });
-  if (!res.ok) {
-    log.error('youtube', 'RSS fetch failed', { playlistId, status: res.status });
-    throw new Error(`Playlist ${playlistId}: HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Playlist ${playlistId}: HTTP ${res.status}`);
   const xml = await res.text();
-  const videos = parseRssEntries(xml, playlistId);
+  return parseRssEntries(xml, playlistId);
+}
+
+export async function fetchPlaylistVideos(
+  playlistId: string,
+  apiKeyOverride?: string | null
+): Promise<VideoEntry[]> {
+  const cached = await getCachedPlaylist(playlistId);
+  if (cached?.length) return cached as VideoEntry[];
+
+  const apiKey = getApiKey(apiKeyOverride);
+  let videos: VideoEntry[];
+  if (apiKey) {
+    try {
+      videos = await fetchPlaylistVideosApi(playlistId, apiKey);
+    } catch (e) {
+      log.warn('youtube', 'API failed, falling back to RSS', { error: String(e) });
+      videos = await fetchPlaylistVideosRss(playlistId);
+    }
+  } else {
+    videos = await fetchPlaylistVideosRss(playlistId);
+  }
+
+  await setCachedPlaylist(playlistId, videos);
   log.info('youtube', 'Playlist loaded', { playlistId, count: videos.length });
   return videos;
 }
 
-export async function fetchAllPlaylistVideos(playlistIds: string[]): Promise<VideoEntry[]> {
+export async function fetchAllPlaylistVideos(
+  playlistIds: string[],
+  apiKeyOverride?: string | null
+): Promise<VideoEntry[]> {
   const unique = [...new Set(playlistIds)];
-  const results = await Promise.allSettled(unique.map(fetchPlaylistVideos));
+  const results = await Promise.allSettled(
+    unique.map((id) => fetchPlaylistVideos(id, apiKeyOverride))
+  );
   const merged: VideoEntry[] = [];
   const seen = new Set<string>();
   for (const r of results) {
@@ -79,7 +103,6 @@ export async function fetchAllPlaylistVideos(playlistIds: string[]): Promise<Vid
   return merged;
 }
 
-/** Seeded Fisher-Yates shuffle for reproducible order per card */
 export function shuffleVideos<T>(items: T[], seed?: number): T[] {
   const arr = [...items];
   let s = seed ?? Date.now();
@@ -96,4 +119,15 @@ export function shuffleVideos<T>(items: T[], seed?: number): T[] {
 
 export function orderVideos(videos: VideoEntry[], random: boolean, seed?: number): VideoEntry[] {
   return random ? shuffleVideos(videos, seed) : [...videos];
+}
+
+export function searchVideos(videos: VideoEntry[], query: string): VideoEntry[] {
+  const q = query.trim().toLowerCase();
+  if (q.length < 3) return [];
+  const words = q.split(/\s+/).filter((w) => w.length > 2);
+  if (!words.length) return [];
+  return videos.filter((v) => {
+    const title = v.title.toLowerCase();
+    return words.every((w) => title.includes(w));
+  });
 }

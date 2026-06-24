@@ -1,10 +1,11 @@
 /** Workspace schema version — bump when breaking URL/import format */
-export const WORKSPACE_VERSION = 1;
+export const WORKSPACE_VERSION = 2;
 
 export interface CardSettings {
   random: boolean;
   showVideo: boolean;
   noAds: boolean;
+  autoplayNext: boolean;
 }
 
 export interface Card {
@@ -12,7 +13,6 @@ export interface Card {
   name: string;
   playlistIds: string[];
   settings: CardSettings;
-  /** Persisted shuffle order indices into merged video list */
   shuffleSeed?: number;
   currentVideoIndex?: number;
 }
@@ -27,6 +27,8 @@ export interface Workspace {
   version: number;
   lists: PlaylistList[];
   activeListId: string | null;
+  /** Optional YouTube Data API key (client-side; stored in bookmark URL) */
+  youtubeApiKey?: string;
 }
 
 export interface VideoEntry {
@@ -40,6 +42,7 @@ export function defaultCardSettings(): CardSettings {
     random: import.meta.env.VITE_DEFAULT_RANDOM !== 'false',
     showVideo: import.meta.env.VITE_DEFAULT_SHOW_VIDEO === 'true',
     noAds: import.meta.env.VITE_DEFAULT_NO_ADS !== 'false',
+    autoplayNext: import.meta.env.VITE_DEFAULT_AUTOPLAY_NEXT !== 'false',
   };
 }
 
@@ -63,4 +66,8 @@ export function createCard(name: string): Card {
     settings: defaultCardSettings(),
     currentVideoIndex: 0,
   };
+}
+
+export function youtubeThumbUrl(videoId: string): string {
+  return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
 }

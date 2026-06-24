@@ -3,6 +3,26 @@ import { initApp } from '@/app/store';
 import { log } from '@/logs/logger';
 import '@/ui/styles/main.css';
 
+function injectFonts(): void {
+  const b = import.meta.env.BASE_URL;
+  const faces = [
+    ['400', 'SF-Pro-Display-Regular.otf'],
+    ['500', 'SF-Pro-Display-Medium.otf'],
+    ['700', 'SF-Pro-Display-Bold.otf'],
+  ];
+  const css = faces
+    .map(
+      ([w, f]) =>
+        `@font-face{font-family:'SF Pro Display';src:url('${b}fonts/${f}') format('opentype');font-weight:${w};font-display:swap;}`
+    )
+    .join('');
+  const s = document.createElement('style');
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+injectFonts();
+
 log.info('boot', 'Playlists Randomizer starting', {
   base: import.meta.env.BASE_URL,
   version: import.meta.env.VITE_URL_STATE_VERSION,

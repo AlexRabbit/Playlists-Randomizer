@@ -38,6 +38,7 @@ export function decodeWorkspace(encoded: string): Workspace | null {
       version: parsed.version ?? parsed.v ?? WORKSPACE_VERSION,
       lists: parsed.lists,
       activeListId: parsed.activeListId ?? null,
+      youtubeApiKey: parsed.youtubeApiKey,
     });
   } catch (e) {
     log.error('url-state', 'Decode failed', { error: String(e) });

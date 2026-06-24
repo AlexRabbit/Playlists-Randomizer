@@ -1,26 +1,49 @@
-import type { PlaylistList } from '@/core/models/workspace';
-import { addCard } from '@/app/store';
+import type { PlaylistList, Workspace } from '@/core/models/workspace';
+import { addCard, reorderCards } from '@/app/store';
 import { mountCard } from './card-player';
+import { openSearchPanel } from './search-panel';
+import { fetchAllPlaylistVideos } from '@/core/youtube/playlist';
+import { t } from '@/i18n';
+import { setupDragReorder } from './drag-reorder';
 
-export function renderMain(el: HTMLElement, list: PlaylistList | null, editingCardId: string | null): void {
+export function renderMain(
+  el: HTMLElement,
+  list: PlaylistList | null,
+  editingCardId: string | null,
+  workspace: Workspace
+): void {
   el.innerHTML = '';
 
   const header = document.createElement('header');
   header.className = 'header';
   const h1 = document.createElement('h1');
-  h1.textContent = list ? list.name : import.meta.env.VITE_APP_NAME || 'Playlists Randomizer';
+  h1.textContent = list ? list.name : t('appName');
   header.appendChild(h1);
 
   if (list) {
     const actions = document.createElement('div');
     actions.className = 'header-actions';
+
+    const searchBtn = document.createElement('button');
+    searchBtn.className = 'btn';
+    searchBtn.textContent = '🔍 ' + t('search');
+    searchBtn.onclick = async () => {
+      const ids = list.cards.flatMap((c) => c.playlistIds);
+      const videos = await fetchAllPlaylistVideos(ids, workspace.youtubeApiKey);
+      openSearchPanel(videos, (v) => {
+        document.dispatchEvent(
+          new CustomEvent('prr:search-pick', { detail: { videoId: v.videoId } })
+        );
+      });
+    };
+
     const cardInput = document.createElement('input');
     cardInput.className = 'inline-input';
-    cardInput.placeholder = 'New card name…';
+    cardInput.placeholder = t('newCardPlaceholder');
     cardInput.style.maxWidth = '200px';
     const addBtn = document.createElement('button');
     addBtn.className = 'btn btn-primary';
-    addBtn.textContent = '+ Card';
+    addBtn.textContent = '+ ' + t('addCard');
     addBtn.onclick = () => {
       addCard(list.id, cardInput.value.trim() || 'Untitled');
       cardInput.value = '';
@@ -28,7 +51,7 @@ export function renderMain(el: HTMLElement, list: PlaylistList | null, editingCa
     cardInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') addBtn.click();
     });
-    actions.append(cardInput, addBtn);
+    actions.append(searchBtn, cardInput, addBtn);
     header.appendChild(actions);
   }
 
@@ -37,10 +60,7 @@ export function renderMain(el: HTMLElement, list: PlaylistList | null, editingCa
   if (!list) {
     const empty = document.createElement('div');
     empty.className = 'empty-state glass';
-    empty.innerHTML = `
-      <p>Create a <strong>List</strong> on the right → then add <strong>Cards</strong> with YouTube playlists.</p>
-      <p>Bookmark your URL to save everything.</p>
-    `;
+    empty.innerHTML = `<p>${t('noListsHint')}</p>`;
     el.appendChild(empty);
     return;
   }
@@ -48,19 +68,19 @@ export function renderMain(el: HTMLElement, list: PlaylistList | null, editingCa
   if (!list.cards.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state glass';
-    empty.innerHTML = `<p>No cards yet. Add a card to start building your player.</p>`;
+    empty.innerHTML = `<p>${t('noCards')}</p>`;
     el.appendChild(empty);
     return;
   }
 
   const grid = document.createElement('div');
   grid.className = 'cards-grid';
-  for (const card of list.cards) {
+  setupDragReorder(grid, list.cards, (from, to) => reorderCards(list.id, from, to), (card, _i, handle) => {
     const cardEl = document.createElement('article');
     cardEl.className = 'card glass';
     cardEl.dataset.cardId = card.id;
-    mountCard(cardEl, list.id, card, editingCardId === card.id);
-    grid.appendChild(cardEl);
-  }
+    mountCard(cardEl, list.id, card, editingCardId === card.id, workspace.youtubeApiKey, handle);
+    return cardEl;
+  });
   el.appendChild(grid);
 }

@@ -1,52 +1,105 @@
 import type { Workspace, PlaylistList, Card } from '@/core/models/workspace';
-import { createList, createCard } from '@/core/models/workspace';
-import { writeWorkspaceToUrl, copyBookmarkUrl } from '@/core/url-state/codec';
+import { createList, createCard, defaultCardSettings } from '@/core/models/workspace';
+import { writeWorkspaceToUrl, copyBookmarkUrl, readWorkspaceFromUrl } from '@/core/url-state/codec';
 import { downloadBackup, parseBackup } from '@/core/import-export/backup';
+import { fetchAllPlaylistVideos, orderVideos, parsePlaylistIdsFromText } from '@/core/youtube/playlist';
 import { log } from '@/logs/logger';
 import { renderSidebar } from '@/ui/components/sidebar';
 import { renderMain } from '@/ui/components/main-area';
 import { renderLogPanel } from '@/ui/components/log-panel';
+import {
+  setGlobalPlayerMount,
+  startGlobalSession,
+  getGlobalSession,
+  globalTogglePlay,
+  globalPrev,
+  globalNext,
+  closeGlobalPlayer,
+} from '@/ui/components/global-player';
+import { t } from '@/i18n';
 
 export type AppState = {
   workspace: Workspace;
   editingCardId: string | null;
+  focusedCardId: string | null;
 };
 
 let state: AppState;
 let root: HTMLElement;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let bookmarkLinkEl: HTMLAnchorElement | null = null;
 
 export function getState(): AppState {
   return state;
 }
 
+export function getWorkspace(): Workspace {
+  return state.workspace;
+}
+
 export function initApp(el: HTMLElement, initial: Workspace): void {
   root = el;
-  state = { workspace: initial, editingCardId: null };
-  // Canonical URL in address bar so browser bookmark saves full workspace
-  if (initial.lists.length) {
-    writeWorkspaceToUrl(initial);
-  }
+  state = { workspace: initial, editingCardId: null, focusedCardId: null };
+  if (initial.lists.length) writeWorkspaceToUrl(initial);
+  mountChrome();
+  setupKeyboard();
+  window.addEventListener('popstate', () => location.reload());
+}
+
+function mountChrome(): void {
   render();
-  window.addEventListener('popstate', () => {
-    log.info('app', 'popstate — reload from URL');
-    location.reload();
-  });
+  let globalRoot = document.getElementById('global-player-root');
+  if (!globalRoot) {
+    globalRoot = document.createElement('div');
+    globalRoot.id = 'global-player-root';
+    document.body.appendChild(globalRoot);
+    setGlobalPlayerMount(globalRoot, () => persist());
+  }
+  let logRoot = document.getElementById('log-panel-root');
+  if (!logRoot) {
+    logRoot = document.createElement('div');
+    logRoot.id = 'log-panel-root';
+    document.body.appendChild(logRoot);
+    renderLogPanel(logRoot);
+  }
 }
 
 function persist(): void {
   writeWorkspaceToUrl(state.workspace);
+  if (bookmarkLinkEl) bookmarkLinkEl.href = copyBookmarkUrl(state.workspace);
 }
 
 function showToast(msg: string): void {
-  const existing = document.querySelector('.toast');
-  existing?.remove();
-  const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
-  document.body.appendChild(t);
+  document.querySelector('.toast')?.remove();
+  const t_el = document.createElement('div');
+  t_el.className = 'toast';
+  t_el.textContent = msg;
+  document.body.appendChild(t_el);
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.remove(), 2800);
+  toastTimer = setTimeout(() => t_el.remove(), 2800);
+}
+
+function setupKeyboard(): void {
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (getGlobalSession()) globalTogglePlay();
+      else document.dispatchEvent(new CustomEvent('prr:card-play-toggle'));
+    } else if (e.code === 'ArrowLeft') {
+      if (getGlobalSession()) globalPrev();
+      else document.dispatchEvent(new CustomEvent('prr:card-prev'));
+    } else if (e.code === 'ArrowRight') {
+      if (getGlobalSession()) globalNext();
+      else document.dispatchEvent(new CustomEvent('prr:card-next'));
+    }
+  });
+}
+
+export function setFocusedCard(cardId: string | null): void {
+  state.focusedCardId = cardId;
 }
 
 export function setActiveList(id: string): void {
@@ -60,7 +113,6 @@ export function addList(name: string): void {
   const list = createList(name);
   state.workspace.lists.push(list);
   state.workspace.activeListId = list.id;
-  log.info('app', 'List created', { name: list.name });
   persist();
   render();
 }
@@ -70,6 +122,7 @@ export function deleteList(id: string): void {
   if (state.workspace.activeListId === id) {
     state.workspace.activeListId = state.workspace.lists[0]?.id ?? null;
   }
+  if (getGlobalSession()?.listId === id) closeGlobalPlayer();
   persist();
   render();
 }
@@ -81,13 +134,31 @@ export function renameList(id: string, name: string): void {
   render();
 }
 
+export function reorderLists(from: number, to: number): void {
+  const { lists } = state.workspace;
+  if (from < 0 || to < 0 || from >= lists.length || to >= lists.length) return;
+  const [item] = lists.splice(from, 1);
+  lists.splice(to, 0, item);
+  persist();
+  render();
+}
+
+export function reorderCards(listId: string, from: number, to: number): void {
+  const list = state.workspace.lists.find((l) => l.id === listId);
+  if (!list) return;
+  if (from < 0 || to < 0 || from >= list.cards.length || to >= list.cards.length) return;
+  const [item] = list.cards.splice(from, 1);
+  list.cards.splice(to, 0, item);
+  persist();
+  render();
+}
+
 export function addCard(listId: string, name: string): void {
   const list = state.workspace.lists.find((l) => l.id === listId);
   if (!list) return;
   const card = createCard(name);
   list.cards.push(card);
   state.editingCardId = card.id;
-  log.info('app', 'Card created', { name: card.name });
   persist();
   render();
 }
@@ -114,24 +185,49 @@ export function setEditingCard(id: string | null): void {
   render();
 }
 
-import { parsePlaylistIdsFromText } from '@/core/youtube/playlist';
-
 export function saveCardPlaylists(listId: string, cardId: string, text: string): void {
   const ids = parsePlaylistIdsFromText(text);
   updateCard(listId, cardId, { playlistIds: ids });
   state.editingCardId = null;
-  showToast(ids.length ? `Saved ${ids.length} playlist(s)` : 'No valid playlists found');
+  showToast(ids.length ? t('savedPlaylists', { count: ids.length }) : t('noValidPlaylists'));
   render();
 }
 
+export function setYoutubeApiKey(key: string): void {
+  state.workspace.youtubeApiKey = key.trim() || undefined;
+  persist();
+  showToast(t('apiKeySave'));
+}
+
+export async function playAllInList(listId: string): Promise<void> {
+  const list = state.workspace.lists.find((l) => l.id === listId);
+  if (!list) return;
+  const ids = list.cards.flatMap((c) => c.playlistIds);
+  if (!ids.length) {
+    showToast(t('noValidPlaylists'));
+    return;
+  }
+  showToast(t('playAllLoading'));
+  const raw = await fetchAllPlaylistVideos(ids, state.workspace.youtubeApiKey);
+  const videos = orderVideos(raw, true, Date.now());
+  const settings = { ...defaultCardSettings(), random: true };
+  startGlobalSession({
+    listId,
+    listName: list.name,
+    videos,
+    index: 0,
+    settings,
+  });
+  persist();
+}
+
 export function copyBookmark(): void {
-  const url = copyBookmarkUrl(state.workspace);
-  navigator.clipboard.writeText(url).then(() => showToast('Bookmark URL copied!'));
+  navigator.clipboard.writeText(copyBookmarkUrl(state.workspace)).then(() => showToast(t('bookmarkCopied')));
 }
 
 export function exportData(): void {
   downloadBackup(state.workspace);
-  showToast('Backup downloaded');
+  showToast(t('backupDownloaded'));
 }
 
 export function importData(file: File): void {
@@ -139,16 +235,21 @@ export function importData(file: File): void {
   reader.onload = () => {
     const ws = parseBackup(String(reader.result));
     if (!ws) {
-      showToast('Invalid backup file');
+      showToast(t('invalidBackup'));
       return;
     }
     state.workspace = ws;
     state.editingCardId = null;
     persist();
     render();
-    showToast('Workspace imported');
+    showToast(t('workspaceImported'));
   };
   reader.readAsText(file);
+}
+
+export function registerBookmarkLink(el: HTMLAnchorElement): void {
+  bookmarkLinkEl = el;
+  el.href = copyBookmarkUrl(state.workspace);
 }
 
 function getActiveList(): PlaylistList | null {
@@ -158,9 +259,7 @@ function getActiveList(): PlaylistList | null {
 
 function render(): void {
   const active = getActiveList();
-  if (active && !state.workspace.activeListId) {
-    state.workspace.activeListId = active.id;
-  }
+  if (active && !state.workspace.activeListId) state.workspace.activeListId = active.id;
 
   root.innerHTML = '';
   const shell = document.createElement('div');
@@ -168,7 +267,7 @@ function render(): void {
 
   const main = document.createElement('main');
   main.className = 'main';
-  renderMain(main, active, state.editingCardId);
+  renderMain(main, active, state.editingCardId, state.workspace);
   shell.appendChild(main);
 
   const sidebar = document.createElement('aside');
@@ -177,19 +276,11 @@ function render(): void {
   shell.appendChild(sidebar);
 
   root.appendChild(shell);
-
-  const existingLog = document.getElementById('log-panel-root');
-  if (!existingLog) {
-    const logRoot = document.createElement('div');
-    logRoot.id = 'log-panel-root';
-    document.body.appendChild(logRoot);
-    renderLogPanel(logRoot);
-  }
 }
 
-export function rerenderCard(cardId: string): void {
-  const el = document.querySelector(`[data-card-id="${cardId}"]`);
-  if (el) {
-    render();
-  }
+/** Reload workspace from current URL (after external navigation) */
+export function reloadFromUrl(): void {
+  state.workspace = readWorkspaceFromUrl();
+  state.editingCardId = null;
+  render();
 }
