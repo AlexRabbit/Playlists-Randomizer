@@ -1,4 +1,8 @@
 import type { CardSettings } from '../models/workspace';
+import { VolumeBoostAudio } from './volume-boost';
+import { VOLUME_SLIDER_MAX, sliderToYoutubeApi } from './volume';
+
+export { VOLUME_SLIDER_MAX } from './volume';
 
 export interface YTPlayer {
   playVideo(): void;
@@ -92,18 +96,13 @@ export type SeekCallback = (current: number, duration: number) => void;
 export type PlayerErrorCallback = (code: number) => void;
 export type PlayStateCallback = (playing: boolean) => void;
 
-/** UI volume slider max; YouTube iframe API accepts 0–100 only. */
-export const VOLUME_SLIDER_MAX = 135;
-
-export function volumeToYoutubeApi(sliderValue: number): number {
-  return Math.round(Math.max(0, Math.min(100, sliderValue)));
-}
-
 /** YT iframe error codes that mean skip to next */
 export const SKIPPABLE_ERROR_CODES = new Set([2, 5, 100, 101, 150]);
 
 export class YouTubePlayerController {
   private player: YTPlayer | null = null;
+  private boost: VolumeBoostAudio | null = null;
+  private useBoost = true;
   private container: HTMLElement;
   private settings: CardSettings;
   private onEnded?: () => void;
@@ -135,11 +134,36 @@ export class YouTubePlayerController {
     this.onPlayStateChange?.(playing);
   }
 
+  private ensureBoost(): VolumeBoostAudio {
+    if (!this.boost) {
+      this.boost = new VolumeBoostAudio();
+      this.boost.onEnded(() => {
+        this.setPlayingState(false);
+        this.stopTick();
+        this.onEnded?.();
+      });
+      this.boost.onError(() => this.onPlayError?.(5));
+      this.boost.onTimeUpdate(() => {
+        if (!this.onSeek || !this.useBoost) return;
+        const dur = this.boost!.getDuration();
+        if (dur > 0) this.onSeek(this.boost!.getCurrentTime(), dur);
+      });
+      this.boost.setVolume(this.volume);
+    }
+    return this.boost;
+  }
+
   private startTick(): void {
     this.stopTick();
     this.tickTimer = setInterval(() => {
-      if (!this.player || !this.onSeek) return;
+      if (!this.onSeek) return;
       try {
+        if (this.useBoost && this.boost) {
+          const dur = this.boost.getDuration();
+          if (dur > 0) this.onSeek(this.boost.getCurrentTime(), dur);
+          return;
+        }
+        if (!this.player) return;
         const cur = this.player.getCurrentTime();
         const dur = this.player.getDuration();
         if (dur > 0) this.onSeek(cur, dur);
@@ -154,43 +178,61 @@ export class YouTubePlayerController {
     this.tickTimer = null;
   }
 
-  private bindEvents(p: YTPlayer): void {
-    /* events set at construction */
+  private async loadBoostAudio(videoId: string): Promise<void> {
+    const boost = this.ensureBoost();
+    try {
+      await boost.load(videoId);
+      this.useBoost = true;
+      boost.setVolume(this.volume);
+      if (this.player) this.player.setVolume(0);
+    } catch {
+      this.useBoost = false;
+      try {
+        this.player?.setVolume(sliderToYoutubeApi(this.volume));
+      } catch {
+        /* not ready */
+      }
+    }
   }
 
-  async load(videoId: string, autoplay = true): Promise<void> {
+  private async ensureIframe(videoId: string, autoplay: boolean): Promise<void> {
+    if (!this.settings.showVideo) return;
     await loadYouTubeApi();
     const YT = window.YT!;
 
     if (!this.mounted) {
-      const h = this.settings.showVideo ? 360 : 1;
-      const w = this.settings.showVideo ? 640 : 1;
       this.player = new YT.Player(this.container, {
-        height: h,
-        width: w,
+        height: 360,
+        width: 640,
         videoId,
-        playerVars: { ...buildPlayerVars(this.settings), autoplay: autoplay ? 1 : 0 },
+        playerVars: {
+          ...buildPlayerVars(this.settings),
+          autoplay: autoplay ? 1 : 0,
+          mute: this.useBoost ? 1 : 0,
+        },
         events: {
           onStateChange: (e) => {
-            if (e.data === ENDED) {
-              this.setPlayingState(false);
-              this.onEnded?.();
-            }
-            if (e.data === PLAYING) {
-              this.startTick();
-              this.setPlayingState(true);
-            }
-            if (e.data === PAUSED) {
-              this.stopTick();
-              this.setPlayingState(false);
+            if (!this.useBoost) {
+              if (e.data === ENDED) {
+                this.setPlayingState(false);
+                this.onEnded?.();
+              }
+              if (e.data === PLAYING) {
+                this.startTick();
+                this.setPlayingState(true);
+              }
+              if (e.data === PAUSED) {
+                this.stopTick();
+                this.setPlayingState(false);
+              }
             }
           },
           onError: (e) => {
             if (SKIPPABLE_ERROR_CODES.has(e.data)) this.onPlayError?.(e.data);
           },
           onReady: (e) => {
-            e.target.setVolume(this.volume);
-            if (autoplay) this.startTick();
+            if (this.useBoost) e.target.setVolume(0);
+            else e.target.setVolume(sliderToYoutubeApi(this.volume));
           },
         },
       });
@@ -202,14 +244,35 @@ export class YouTubePlayerController {
     if (this.currentVideoId !== videoId) {
       this.player!.loadVideoById(videoId);
       this.currentVideoId = videoId;
-      if (autoplay) this.startTick();
-    } else if (autoplay) {
-      this.player!.playVideo();
-      this.startTick();
+      if (this.useBoost) this.player!.setVolume(0);
     }
   }
 
-  /** @deprecated use load() */
+  async load(videoId: string, autoplay = true): Promise<void> {
+    if (this.settings.showVideo) {
+      await this.ensureIframe(videoId, false);
+    }
+
+    await this.loadBoostAudio(videoId);
+
+    if (autoplay) {
+      if (this.useBoost) {
+        await this.boost!.play();
+        this.startTick();
+        this.setPlayingState(true);
+        if (this.settings.showVideo && this.player) {
+          this.player.playVideo();
+        }
+      } else if (this.settings.showVideo && this.player) {
+        this.player.playVideo();
+        this.startTick();
+        this.setPlayingState(true);
+      }
+    }
+
+    this.currentVideoId = videoId;
+  }
+
   async init(videoId: string): Promise<void> {
     return this.load(videoId, true);
   }
@@ -219,12 +282,21 @@ export class YouTubePlayerController {
   }
 
   pause(): void {
+    this.boost?.pause();
     this.player?.pauseVideo();
     this.stopTick();
     this.setPlayingState(false);
   }
 
   resume(): void {
+    if (this.useBoost && this.boost) {
+      void this.boost.play().then(() => {
+        this.startTick();
+        this.setPlayingState(true);
+        if (this.settings.showVideo) this.player?.playVideo();
+      });
+      return;
+    }
     if (!this.player) return;
     this.player.playVideo();
     this.startTick();
@@ -232,15 +304,25 @@ export class YouTubePlayerController {
   }
 
   seek(seconds: number): void {
+    this.boost?.seek(seconds);
     this.player?.seekTo(seconds, true);
   }
 
   setVolume(vol: number): void {
     this.volume = Math.max(0, Math.min(VOLUME_SLIDER_MAX, vol));
-    try {
-      this.player?.setVolume(volumeToYoutubeApi(this.volume));
-    } catch {
-      /* not ready */
+    if (this.useBoost && this.boost) {
+      this.boost.setVolume(this.volume);
+      try {
+        this.player?.setVolume(0);
+      } catch {
+        /* noop */
+      }
+    } else {
+      try {
+        this.player?.setVolume(sliderToYoutubeApi(this.volume));
+      } catch {
+        /* not ready */
+      }
     }
   }
 
@@ -249,6 +331,7 @@ export class YouTubePlayerController {
   }
 
   isPlaying(): boolean {
+    if (this.useBoost && this.boost) return this.boost.isPlaying();
     try {
       return this.player?.getPlayerState() === PLAYING;
     } catch {
@@ -257,20 +340,23 @@ export class YouTubePlayerController {
   }
 
   isPaused(): boolean {
+    if (this.useBoost && this.boost) return !this.boost.isPlaying();
     try {
       const s = this.player?.getPlayerState();
-      return s === PAUSED || s === 5; // CUED
+      return s === PAUSED || s === 5;
     } catch {
       return false;
     }
   }
 
   hasPlayer(): boolean {
-    return this.mounted;
+    return this.mounted || Boolean(this.boost);
   }
 
   destroy(): void {
     this.stopTick();
+    this.boost?.destroy();
+    this.boost = null;
     try {
       this.player?.destroy();
     } catch {
@@ -283,6 +369,7 @@ export class YouTubePlayerController {
   }
 
   updateSettings(settings: CardSettings): void {
+    const wasShow = this.settings.showVideo;
     this.settings = settings;
     const el = this.container.querySelector('iframe') as HTMLIFrameElement | null;
     if (el) {
@@ -293,6 +380,9 @@ export class YouTubePlayerController {
       el.style.height = show ? '100%' : '1px';
       el.style.opacity = show ? '1' : '0';
       el.style.pointerEvents = show ? '' : 'none';
+    }
+    if (!wasShow && settings.showVideo && this.currentVideoId) {
+      void this.ensureIframe(this.currentVideoId, false);
     }
   }
 }

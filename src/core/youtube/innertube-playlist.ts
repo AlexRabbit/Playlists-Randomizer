@@ -1,37 +1,8 @@
 import type { VideoEntry } from '../models/workspace';
 import { log } from '@/logs/logger';
+import { getInnertube, resetInnertubeSession } from './innertube-session';
 
-let innertubePromise: Promise<import('youtubei.js').Innertube> | null = null;
-
-export function resetInnertubeSession(): void {
-  innertubePromise = null;
-}
-
-/** window.fetch must be bound — bare calls throw "Illegal invocation" in browsers. */
-const safeFetch: typeof fetch = globalThis.fetch.bind(globalThis);
-
-async function patchPlatformFetch(): Promise<void> {
-  const { Platform } = await import('youtubei.js');
-  try {
-    Platform.shim.fetch = safeFetch;
-  } catch {
-    /* Platform shim not ready yet — Innertube.create will load it */
-  }
-}
-
-async function getInnertube() {
-  await patchPlatformFetch();
-  const { Innertube, Platform } = await import('youtubei.js');
-  Platform.shim.fetch = safeFetch;
-  if (!innertubePromise) {
-    innertubePromise = Innertube.create({
-      generate_session_locally: true,
-      retrieve_player: false,
-      fetch: safeFetch,
-    });
-  }
-  return innertubePromise;
-}
+export { resetInnertubeSession };
 
 export function parsePlaylistTotalItems(raw: string | undefined | null): number | undefined {
   if (!raw) return undefined;

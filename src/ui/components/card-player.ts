@@ -190,10 +190,11 @@ function renderPlayer(
 ): void {
   const nowPlaying = document.createElement('div');
   nowPlaying.className = 'now-playing';
-  nowPlaying.textContent = t('loadingPlaylists');
+  nowPlaying.textContent = t('pressPlayToLoad');
 
   const playerWrap = document.createElement('div');
-  playerWrap.className = 'player-area' + (card.settings.showVideo ? '' : ' audio-only');
+  playerWrap.className =
+    'player-area' + (card.settings.showVideo ? ' video-float' : ' audio-only');
   const playerHost = document.createElement('div');
   playerHost.id = `yt-${card.id}`;
   playerHost.className = 'player-host';
@@ -239,11 +240,13 @@ function renderPlayer(
       currentVideoIndex: 0,
     });
     card.settings.random = random;
-    reloadVideos();
+    if (videosLoaded) void reloadVideos();
   });
 
   const videoBtn = iconButton(card.settings.showVideo ? 'video' : 'videoOff', t('showVideo'));
   videoBtn.classList.toggle('active', card.settings.showVideo);
+
+  const queueBtn = iconButton('list', t('queuePanel'));
 
   const autoBtn = iconButton('autoplay', t('autoplayNext'));
   autoBtn.classList.toggle('active', card.settings.autoplayNext);
@@ -253,7 +256,7 @@ function renderPlayer(
   loadFullItem.onclick = () => {
     const menu = loadFullItem.closest('.card-menu-dropdown');
     if (menu instanceof HTMLElement) menu.hidden = true;
-    void reloadVideos(true);
+    void ensureVideosLoaded(true);
   };
 
   let cardIsPlaying = false;
@@ -287,7 +290,7 @@ function renderPlayer(
   const volumeEl = createVolumeSlider((v) => ctrl.setVolume(v), ctrl.getVolume());
 
   rowMain.append(prev, play, next, volumeEl);
-  rowToggles.append(orderSeg, videoBtn, autoBtn, searchBtn);
+  rowToggles.append(orderSeg, videoBtn, queueBtn, autoBtn, searchBtn);
   controls.append(rowMain, rowToggles);
   el.append(nowPlaying, playerWrap, thumbGrid, seek.el, timeRow, controls);
 
@@ -295,6 +298,9 @@ function renderPlayer(
   let index = card.currentVideoIndex ?? 0;
   let duration = 0;
   let loadingMore = false;
+  let loadingVideos = false;
+  let videosLoaded = false;
+  let queuePanelOpen = false;
   let truncatedMeta: PlaylistTruncation[] = [];
   let ownsPlaylistSidebar = false;
 
@@ -379,16 +385,24 @@ function renderPlayer(
       onPick: (i) => go(i, true),
       onReorder: reorderQueue,
       truncated: isTruncated(),
-      onLoadFull: () => void reloadVideos(true),
+      onLoadFull: () => void ensureVideosLoaded(true),
     };
   }
 
-  function syncVideoPanel(): void {
-    const show = card.settings.showVideo && videos.length > 0;
-    playerWrap.classList.toggle('audio-only', !card.settings.showVideo);
-    if (!show) {
-      hidePlaylistSidebar();
-      ownsPlaylistSidebar = false;
+  function syncVideoFloat(): void {
+    const show = card.settings.showVideo;
+    playerWrap.classList.toggle('audio-only', !show);
+    playerWrap.classList.toggle('video-float', show);
+    ctrl.updateSettings(card.settings);
+  }
+
+  function syncQueuePanel(): void {
+    queueBtn.classList.toggle('active', queuePanelOpen);
+    if (!queuePanelOpen || !videos.length) {
+      if (ownsPlaylistSidebar) {
+        hidePlaylistSidebar();
+        ownsPlaylistSidebar = false;
+      }
       return;
     }
     ownsPlaylistSidebar = true;
@@ -396,7 +410,7 @@ function renderPlayer(
   }
 
   function refreshPlaylistSidebar(): void {
-    if (ownsPlaylistSidebar && card.settings.showVideo) {
+    if (ownsPlaylistSidebar && queuePanelOpen) {
       updatePlaylistSidebar(sidebarConfig());
     }
   }
@@ -419,12 +433,16 @@ function renderPlayer(
     const v = videos[index];
     nowPlaying.replaceChildren();
     if (!v) {
-      const strong = document.createElement('strong');
-      strong.textContent = t('noVideos');
+      if (loadingVideos) return;
       const hint = document.createElement('span');
       hint.className = 'now-playing-hint';
-      hint.textContent = t('noVideosHint');
-      nowPlaying.append(strong, hint);
+      hint.textContent = videosLoaded ? t('noVideosHint') : t('pressPlayToLoad');
+      nowPlaying.append(hint);
+      if (videosLoaded) {
+        const strong = document.createElement('strong');
+        strong.textContent = t('noVideos');
+        nowPlaying.prepend(strong);
+      }
       return;
     }
     const title = document.createElement('strong');
@@ -437,22 +455,34 @@ function renderPlayer(
   }
 
   play.onclick = () => {
-    setFocusedCard(card.id);
-    if (!videos.length) return;
-    if (!ctrl.hasPlayer()) {
-      onCardPlaybackStart();
-      void ctrl.load(videos[index].videoId, true).then(() => setPlayIcon(true));
-    } else if (ctrl.isPlaying()) {
-      ctrl.pause();
-      setPlayIcon(false);
-    } else {
-      onCardPlaybackStart();
-      ctrl.resume();
-      setPlayIcon(true);
-    }
+    void (async () => {
+      setFocusedCard(card.id);
+      if (!videos.length) {
+        const ok = await ensureVideosLoaded();
+        if (!ok) return;
+      }
+      if (!ctrl.hasPlayer()) {
+        onCardPlaybackStart();
+        await ctrl.load(videos[index].videoId, true);
+        setPlayIcon(true);
+      } else if (ctrl.isPlaying()) {
+        ctrl.pause();
+        setPlayIcon(false);
+      } else {
+        onCardPlaybackStart();
+        ctrl.resume();
+        setPlayIcon(true);
+      }
+    })();
   };
-  prev.onclick = () => skipNext(-1);
-  next.onclick = () => skipNext(1);
+  prev.onclick = () => {
+    if (!videos.length) return;
+    skipNext(-1);
+  };
+  next.onclick = () => {
+    if (!videos.length) return;
+    skipNext(1);
+  };
 
   videoBtn.onclick = () => {
     const showVideo = !card.settings.showVideo;
@@ -460,8 +490,16 @@ function renderPlayer(
     card.settings.showVideo = showVideo;
     videoBtn.classList.toggle('active', showVideo);
     setIcon(videoBtn, showVideo ? 'video' : 'videoOff');
-    ctrl.updateSettings(card.settings);
-    syncVideoPanel();
+    syncVideoFloat();
+  };
+
+  queueBtn.onclick = () => {
+    if (!videos.length) {
+      showToast(t('pressPlayToLoad'));
+      return;
+    }
+    queuePanelOpen = !queuePanelOpen;
+    syncQueuePanel();
   };
 
   const focused = () => getState().focusedCardId === card.id;
@@ -474,7 +512,10 @@ function renderPlayer(
   };
 
   searchBtn.onclick = () => {
-    if (!videos.length) return;
+    if (!videos.length) {
+      showToast(t('pressPlayToLoad'));
+      return;
+    }
     openSearchPanel(videos, (_, idx) => go(idx, true));
   };
 
@@ -494,7 +535,17 @@ function renderPlayer(
   document.addEventListener('prr:card-next', onNext);
   document.addEventListener('prr:search-pick', onSearch);
 
-  async function reloadVideos(forceRefresh = false): Promise<void> {
+  async function ensureVideosLoaded(forceRefresh = false): Promise<boolean> {
+    if (videos.length && !forceRefresh) {
+      videosLoaded = true;
+      return true;
+    }
+    if (loadingVideos) return false;
+    return reloadVideos(forceRefresh);
+  }
+
+  async function reloadVideos(forceRefresh = false): Promise<boolean> {
+    loadingVideos = true;
     nowPlaying.replaceChildren();
     nowPlaying.appendChild(createSkeletonCard());
     try {
@@ -510,10 +561,14 @@ function renderPlayer(
       if (!card.shuffleSeed) updateCard(listId, card.id, { shuffleSeed: seed });
       index = Math.min(card.currentVideoIndex ?? 0, Math.max(0, videos.length - 1));
       if (videos[index]?.unavailable) index = nextPlayableIndex(index, 1);
+      videosLoaded = videos.length > 0;
       updateNowPlaying();
-      syncVideoPanel();
+      syncVideoFloat();
+      if (queuePanelOpen) syncQueuePanel();
       log.info('player', 'Card ready', { card: card.name, videos: videos.length });
+      return videosLoaded;
     } catch (e) {
+      videosLoaded = false;
       nowPlaying.replaceChildren();
       const strong = document.createElement('strong');
       strong.textContent = t('noVideos');
@@ -522,13 +577,14 @@ function renderPlayer(
       hint.textContent = t('fetchErrorHint');
       nowPlaying.append(strong, hint);
       log.error('player', 'Load failed', { error: String(e) });
+      return false;
+    } finally {
+      loadingVideos = false;
     }
   }
 
-  [prev, play, next, videoBtn, autoBtn, searchBtn].forEach(bindHaptic);
-
-  setFocusedCard(card.id);
-  reloadVideos();
+  [prev, play, next, videoBtn, queueBtn, autoBtn, searchBtn].forEach(bindHaptic);
+  syncVideoFloat();
 }
 
 function createOrderSegment(initialRandom: boolean, onChange: (random: boolean) => void): HTMLElement {
