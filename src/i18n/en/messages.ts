@@ -93,6 +93,62 @@ export const messages = {
   invalidBackup: 'Invalid backup file',
   workspaceImported: 'Workspace imported',
   dragReorder: 'Drag to reorder',
+  howToUse: 'How to Use',
+  tourProgress: '{{current}} of {{total}}',
+  tourNext: 'Next',
+  tourPrev: 'Back',
+  tourDone: 'Got it!',
+  tourConceptTitle: 'How it is organized',
+  tourConceptDesc:
+    '<strong>Lists</strong> are your top-level folders.<br><br>Each list holds <strong>Cards</strong> — independent players.<br><br>Each card loads one or more <strong>YouTube playlists</strong> and plays their videos in <strong>Random</strong> or <strong>Sequential</strong> order.<br><br>You can also <strong>Play all</strong> videos from every card in a list at once.',
+  tourSidebarTitle: 'Lists panel',
+  tourSidebarDesc:
+    'All your lists live here. A list groups related cards (e.g. “Workout”, “Chill”, “Podcasts”). Click a list name to open it in the main area.',
+  tourAddListTitle: 'Create a list',
+  tourAddListDesc:
+    'Type a name and press <strong>+</strong> or Enter. Start here if you are new — you need at least one list before adding cards.',
+  tourListNavTitle: 'Manage lists',
+  tourListNavDesc:
+    '• <strong>Click</strong> a list to select it<br>• <strong>Drag ⠿</strong> to reorder lists<br>• <strong>▶</strong> plays every playlist from every card in that list (global player)<br>• <strong>Right-click</strong> a list name — same as ▶ Play all<br>• <strong>Double-click</strong> to rename<br>• <strong>×</strong> deletes the list',
+  tourListActionsTitle: 'List tools',
+  tourListActionsDesc:
+    '<strong>🔍 Search videos</strong> — search across <em>all</em> playlists in <em>all</em> cards of this list, then play the pick in the global player.<br><br><strong>+ Add Card</strong> — create a new player card in this list.',
+  tourCardsTitle: 'Cards grid',
+  tourCardsDesc:
+    'Each card is its own player. Drag cards by ⠿ to reorder them within the list. Cards do not share playback — only one focused card responds to keyboard shortcuts at a time.',
+  tourNoCardsTitle: 'No cards yet',
+  tourNoCardsDesc:
+    'Use <strong>+ Add Card</strong> above. After creating a card, paste YouTube playlist URLs and press <strong>Save & Play</strong>.',
+  tourCardTitle: 'Player card',
+  tourCardDesc:
+    'A card wraps one or more YouTube playlists into a single player. Press <strong>Play</strong> to load videos. The title stays hidden (spoiler style) until playback starts.',
+  tourCardControlsTitle: 'Playback controls',
+  tourCardControlsDesc:
+    '<strong>🔍 Search</strong> — find a video in this card’s queue<br><strong>◀ ▶ ⏸</strong> — previous, play/pause, next<br><strong>Volume</strong> — 0–100% uses YouTube; above 100% boosts loudness via Web Audio (when available)',
+  tourCardTogglesTitle: 'Modes & panels',
+  tourCardTogglesDesc:
+    '<strong>Sequential | Random</strong> — playback order<br><strong>Show video</strong> — floating video overlay (Esc to close, F for fullscreen, double-click player)<br><strong>Autoplay next</strong> — auto-advance when a track ends',
+  tourQueueTitle: 'Queue panel',
+  tourQueueDesc:
+    'Tap this list icon to open the queue sidebar with every loaded track. Click a row to play it. Drag ⠿ rows to reorder (card queue only — global queue reorder is session-only).',
+  tourCardMenuTitle: 'Card menu (⋯)',
+  tourCardMenuDesc:
+    '<strong>Edit playlists</strong> — change name or playlist URLs<br><strong>Reload playlists</strong> — refresh from YouTube<br><strong>Minimize ads</strong> — experimental<br><strong>Delete card</strong>',
+  tourSettingsTitle: 'Settings',
+  tourSettingsDesc:
+    'Optional <strong>YouTube API key</strong> unlocks full playlists (YouTube caps anonymous loads at ~200 videos). Stored only in your bookmark URL — never sent to our servers except your own Google API calls.',
+  tourFooterTitle: 'Save & backup',
+  tourFooterDesc:
+    '<strong>★ Drag to Bookmarks</strong> — save workspace to browser bookmarks<br><strong>Copy bookmark URL</strong> — share or save elsewhere<br><strong>Export / Import backup</strong> — JSON file backup',
+  tourTopbarTitle: 'Top bar',
+  tourTopbarDesc:
+    '<strong>Language</strong> — UI locale<br><strong>How to Use</strong> — restart this tour anytime<br><strong>Logs</strong> — debug panel for troubleshooting',
+  tourGlobalPlayerTitle: 'Global player — Play all',
+  tourGlobalPlayerDesc:
+    'Press <strong>▶</strong> next to any list (or <strong>right-click</strong> the list name) to play every playlist from every card in that list. List search picks also open this bottom bar. It merges all videos into one queue with the same controls as cards.',
+  tourVideoTitle: 'Video overlay & cast',
+  tourVideoDesc:
+    'With <strong>Show video</strong> on, playback opens in a floating overlay. Cast buttons (AirPlay / Chromecast) sit left of Sequential | Random when the overlay is open. Card and global players share the same layout.',
 } as const;
 
 export type MessageKey = keyof typeof messages;

@@ -27,6 +27,7 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
 
   const addRow = document.createElement('div');
   addRow.className = 'add-row';
+  addRow.id = 'tour-add-list';
   const input = document.createElement('input');
   input.className = 'inline-input';
   input.placeholder = t('newListPlaceholder');
@@ -47,6 +48,7 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
 
   const nav = document.createElement('nav');
   nav.className = 'list-nav glass-scroll';
+  nav.id = 'tour-list-nav';
   setupDragReorder(nav, ws.lists, reorderLists, (list, _i, handle) => {
     const row = document.createElement('div');
     row.className = 'list-row';
@@ -95,6 +97,7 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
 
   const settings = document.createElement('details');
   settings.className = 'settings-panel';
+  settings.id = 'tour-settings';
   const sum = document.createElement('summary');
   sum.textContent = t('settings');
   const apiLabel = document.createElement('label');
@@ -117,6 +120,7 @@ export function renderSidebar(el: HTMLElement, ws: Workspace): void {
 
   const footer = document.createElement('div');
   footer.className = 'sidebar-footer';
+  footer.id = 'tour-sidebar-footer';
 
   const dragLink = createBookmarkDragLink(ws);
   registerBookmarkLink(dragLink);

@@ -23,6 +23,7 @@ import {
 } from '@/ui/components/global-player';
 import { t, listLocales, getLocale, setLocale, getLocaleLabel, notifyLocaleChange } from '@/i18n';
 import { showToast } from '@/app/toast';
+import { startHowToUseTour, shouldShowHowToUsePulse, dismissHowToUsePulse, HOW_TO_USE_PULSE_CLASS } from '@/ui/tour/how-to-use';
 
 export type AppState = {
   workspace: Workspace;
@@ -282,14 +283,17 @@ function render(): void {
 
   const topBar = document.createElement('header');
   topBar.className = 'app-topbar glass';
+  topBar.id = 'tour-topbar';
   const topTitle = document.createElement('span');
   topTitle.className = 'app-topbar-title';
   topTitle.textContent = t('appName').toUpperCase();
   const topActions = document.createElement('div');
   topActions.className = 'app-topbar-actions';
+  topActions.id = 'tour-topbar-actions';
 
   const langSelect = document.createElement('select');
   langSelect.className = 'lang-select';
+  langSelect.id = 'tour-lang-select';
   langSelect.title = t('language');
   for (const loc of listLocales()) {
     const opt = document.createElement('option');
@@ -304,13 +308,28 @@ function render(): void {
     render();
   };
 
+  const howToBtn = document.createElement('button');
+  howToBtn.type = 'button';
+  howToBtn.className = 'btn btn-how-to-use';
+  howToBtn.id = 'tour-how-to-use-btn';
+  howToBtn.textContent = t('howToUse');
+  if (shouldShowHowToUsePulse()) {
+    howToBtn.classList.add(HOW_TO_USE_PULSE_CLASS);
+  }
+  howToBtn.onclick = () => {
+    dismissHowToUsePulse();
+    howToBtn.classList.remove(HOW_TO_USE_PULSE_CLASS);
+    startHowToUseTour();
+  };
+
   const logsBtn = document.createElement('button');
   logsBtn.type = 'button';
   logsBtn.className = 'btn';
+  logsBtn.id = 'tour-logs-btn';
   logsBtn.textContent = '🔬 ' + t('logs');
   logsBtn.onclick = () => toggleLogPanel();
 
-  topActions.append(langSelect, logsBtn);
+  topActions.append(langSelect, howToBtn, logsBtn);
   topBar.append(topTitle, topActions);
   root.appendChild(topBar);
 
@@ -325,11 +344,13 @@ function render(): void {
 
   const main = document.createElement('main');
   main.className = 'main';
+  main.id = 'tour-main';
   renderMain(main, active, state.editingCardId, state.workspace);
   shell.appendChild(main);
 
   const sidebar = document.createElement('aside');
   sidebar.className = 'sidebar glass';
+  sidebar.id = 'tour-sidebar';
   renderSidebar(sidebar, state.workspace);
   shell.appendChild(sidebar);
 
