@@ -39,6 +39,20 @@ echo
 
 Push to `main` or run **Actions → Deploy GitHub Pages → Run workflow**.
 
+With **tunnel-sync** installed on the VPS, this happens automatically when the quick-tunnel URL changes (see [DEPLOY.md](./DEPLOY.md#auto-sync-on-reboot-quick-tunnels)).
+
+## tunnel-sync GitHub PAT (VPS only)
+
+For automatic secret updates, create a fine-grained PAT with **Secrets** and **Actions** write access on `Playlists-Randomizer` and `Stremio-Watchlist-Maker`. Store it only on the VPS:
+
+```sh
+mkdir -p /etc/tunnel-sync
+printf '%s' 'YOUR_PAT' > /etc/tunnel-sync/github.token
+chmod 600 /etc/tunnel-sync/github.token
+```
+
+Never commit the PAT or add it to GitHub repository secrets.
+
 ### Verify
 
 Open the live app, load a large public playlist, open **Logs** — look for `Playlist loaded via proxy`.

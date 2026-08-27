@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+
+name="tunnel-sync"
+description="Sync trycloudflare URLs to GitHub secrets and rebuild Pages"
+command="/data/ops/tunnel-sync/run-loop.sh"
+command_background="yes"
+pidfile="/run/tunnel-sync.pid"
+output_log="/var/log/tunnel-sync.log"
+error_log="/var/log/tunnel-sync.log"
+
+depend() {
+  need net
+  after cloudflared-playlist cloudflared-stremio
+}
+
+start_pre() {
+  checkpath --directory --owner root:root --mode 0755 /data/ops/tunnel-sync
+  checkpath --file --mode 0644 /var/log/tunnel-sync.log
+  if [ ! -x /data/ops/tunnel-sync/.venv/bin/python ]; then
+    eerror "Missing /data/ops/tunnel-sync/.venv — run install-alpine.sh"
+    return 1
+  fi
+  if [ ! -s /etc/tunnel-sync/github.token ]; then
+    eerror "Missing /etc/tunnel-sync/github.token"
+    return 1
+  fi
+}

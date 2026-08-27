@@ -1,0 +1,22 @@
+# Copy to /etc/tunnel-sync/config (optional overrides). Token: /etc/tunnel-sync/github.token
+GITHUB_OWNER=AlexRabbit
+
+# Playlists-Randomizer
+PLAYLISTS_REPO=Playlists-Randomizer
+PLAYLISTS_URL_FILE=/data/playlistapp/logs/tunnel.url
+PLAYLISTS_SECRET=VITE_PLAYLIST_PROXY_B64
+PLAYLISTS_WORKFLOW=pages.yml
+PLAYLISTS_WORKFLOW_REF=main
+
+# Stremio-Watchlist-Maker
+STREMIO_REPO=Stremio-Watchlist-Maker
+STREMIO_URL_FILE=/data/stremio-channel-organizer/logs/tunnel.url
+STREMIO_SECRET=PUBLIC_API_URL
+STREMIO_WORKFLOW=pages.yml
+STREMIO_WORKFLOW_REF=main
+STREMIO_ENV_FILE=/data/stremio-channel-organizer/.env
+STREMIO_SERVICE=stremio-channel-organizer
+
+STATE_FILE=/etc/tunnel-sync/state.json
+SYNC_INTERVAL_SEC=120
+LOG_FILE=/var/log/tunnel-sync.log

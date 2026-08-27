@@ -78,6 +78,29 @@ curl -s "https://YOUR-TUNNEL-URL/health"
 
 **WIRSS is untouched:** `/etc/cloudflared` and port 8787 are separate.
 
+## Auto-sync on reboot (quick tunnels)
+
+When using ephemeral `trycloudflare.com` URLs, install the **tunnel-sync** service so GitHub secrets and Pages rebuilds happen automatically after a VPS restart:
+
+```sh
+# One-time: create fine-grained GitHub PAT (Secrets + Actions write on both repos)
+# Store on VPS only:
+printf '%s' 'YOUR_GITHUB_PAT' > /etc/tunnel-sync/github.token
+chmod 600 /etc/tunnel-sync/github.token
+
+cd /path/to/deploy/ops/tunnel-sync
+chmod +x install-alpine.sh
+./install-alpine.sh
+```
+
+The service watches `/data/playlistapp/logs/tunnel.url` and `/data/stremio-channel-organizer/logs/tunnel.url`, updates GitHub secrets, and triggers Pages workflows. Users never see the VPS IP.
+
+```sh
+rc-service tunnel-sync status
+/data/ops/tunnel-sync/.venv/bin/python /data/ops/tunnel-sync/sync.py --once --check-only
+tail -20 /var/log/tunnel-sync.log
+```
+
 ## GitHub Pages
 
 See [GITHUB-UPLOAD.md](./GITHUB-UPLOAD.md) for setting `VITE_PLAYLIST_PROXY_B64`.
@@ -90,7 +113,7 @@ After updating the secret, push to `main` or run **Actions → Deploy GitHub Pag
 |---------|-----|
 | ~15–200 videos only | Proxy down or stale GitHub secret |
 | `503 API key not configured` | Re-run install or check age decryption |
-| Tunnel URL changed | Update `VITE_PLAYLIST_PROXY_B64` and rebuild |
+| Tunnel URL changed | Auto-sync via `tunnel-sync` service, or update `VITE_PLAYLIST_PROXY_B64` manually |
 | CORS errors | Set `ALLOWED_ORIGINS=https://alexrabbit.github.io` |
 
 ## Security

@@ -19,6 +19,7 @@ fi
   case "$line" in
     *trycloudflare.com*)
       echo "$line" | tr -d ' |' | grep -o 'https://[^ ]*trycloudflare.com' | head -1 > "$URLF" || true
+      touch /etc/tunnel-sync/tunnel.changed 2>/dev/null || true
       ;;
   esac
 done
