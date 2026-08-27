@@ -34,7 +34,7 @@ The **API key never goes to GitHub** — only the tunnel URL (base64) in `VITE_P
 
 ## Deploy from Windows
 
-Proxy project lives at `A:\VibeCode\projects\playlists\` (not in this repo).
+Proxy project lives at `A:\VibeCode\projects\playlists\` (not in this repo). If missing, copy the prepared deploy package from your Cursor agent run artifacts (`playlists-proxy/` folder) — it includes `server.js`, `deploy.sh`, `UPLOAD-TO-VPS.ps1`, and systemd units.
 
 ```powershell
 cd A:\VibeCode\projects\playlists
