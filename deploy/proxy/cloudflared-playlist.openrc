@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+name="cloudflared-playlist"
+description="Cloudflare tunnel to playlist proxy (127.0.0.1:3847)"
+command="/data/playlistapp/cloudflared-playlist-run.sh"
+command_background="yes"
+pidfile="/run/cloudflared-playlist.pid"
+output_log="/data/playlistapp/logs/cloudflared.log"
+error_log="/data/playlistapp/logs/cloudflared.log"
+
+depend() {
+  need net playlistproxy
+  after playlistproxy firewall
+}
+
+start_pre() {
+  checkpath --directory --owner root:root --mode 0755 /data/playlistapp/logs
+  checkpath --file --mode 0644 /data/playlistapp/logs/cloudflared.log
+}

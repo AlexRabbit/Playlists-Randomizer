@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+
+name="playlistproxy"
+description="YouTube playlist proxy for Playlists-Randomizer"
+command="/data/playlistapp/playlistproxy-run.sh"
+command_background="yes"
+pidfile="/run/playlistproxy.pid"
+output_log="/data/playlistapp/logs/proxy.log"
+error_log="/data/playlistapp/logs/proxy.log"
+
+depend() {
+  need net
+  after firewall
+}
+
+start_pre() {
+  checkpath --directory --owner root:root --mode 0755 /data/playlistapp/logs
+  checkpath --file --mode 0644 /data/playlistapp/logs/proxy.log
+  if [ ! -x /data/playlistapp/playlistproxy-run.sh ]; then
+    eerror "Missing /data/playlistapp/playlistproxy-run.sh"
+    return 1
+  fi
+  if [ ! -f /data/playlistapp/secrets/youtube-api.key.age ]; then
+    eerror "Missing encrypted API key"
+    return 1
+  fi
+}
