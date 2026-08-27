@@ -435,10 +435,11 @@ public/      # Fonts & static assets
 
 <br>
 
-YouTube limits anonymous fetches. Fixes:
+YouTube limits anonymous fetches, or the hosted VPS proxy may be down after a reboot. Fixes:
 
-1. **Settings** → paste **YouTube Data API v3** key → Save  
-2. Or click **Load full playlist** after load
+1. See [docs/VPS-RECOVERY.md](docs/VPS-RECOVERY.md) (restore tunnel + GitHub secret)
+2. **Settings** → paste **YouTube Data API v3** key → Save  
+3. Or click **Load full playlist** after load
 
 </details>
 
